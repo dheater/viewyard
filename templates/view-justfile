@@ -1,0 +1,47 @@
+# Task View Commands
+# This justfile is automatically created in each view directory
+
+# Show available commands
+default:
+    @just --list
+
+# Show status of all repos in this view
+status:
+    python3 ../../viewyard/scripts/view-commands.py status
+
+# Rebase all repos against origin/master
+rebase:
+    python3 ../../viewyard/scripts/view-commands.py rebase
+
+# Build repos with uncommitted changes
+build:
+    python3 ../../viewyard/scripts/view-commands.py build
+
+# Commit message to all dirty repos
+commit-all message:
+    python3 ../../viewyard/scripts/view-commands.py commit-all "{{message}}"
+
+# Push all repos with commits ahead
+push-all:
+    python3 ../../viewyard/scripts/view-commands.py push-all
+
+# Show diff for all repos with changes
+diff:
+    python3 ../../viewyard/scripts/view-commands.py diff
+
+# Add a repository to this view
+add-repo repo:
+    python3 ../../viewyard/scripts/view-commands.py add-repo "{{repo}}"
+
+# Show help
+help:
+    @echo "Task View Commands"
+    @echo "=================="
+    @echo ""
+    @echo "  just status              - Show status of all repos in view"
+    @echo "  just diff                - Show diff for all repos with changes"
+    @echo "  just rebase              - Rebase all repos against origin/master"
+    @echo "  just build               - Build repos with uncommitted changes"
+    @echo "  just commit-all \"msg\"    - Commit to all dirty repos"
+    @echo "  just push-all            - Push all repos with commits ahead"
+    @echo "  just add-repo <repo>     - Add a repository to this view"

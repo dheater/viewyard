@@ -1,0 +1,16 @@
+{
+  "view_name": "{{VIEW_NAME}}",
+  "view_root": "{{VIEW_ROOT}}",
+  "active_repos": [{{ACTIVE_REPOS}}],
+  "created": "{{TIMESTAMP}}",
+  "workspace_boundary": {
+    "allowed_paths": [
+      "{{VIEW_ROOT}}",
+      "{{VIEW_ROOT}}/**"
+    ],
+    "forbidden_paths": [
+      "../**/views/*/",
+      "../../views/*/"
+    ]
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "workspace": {
+    "name": "Viewyard",
+    "description": "The refreshingly unoptimized alternative to monorepos"
+  },
+  "repos": [
+    {
+      "name": "librssconnect",
+      "path": "../librssconnect",
+      "url": "git@github.com:imprivata-pas/librssconnect.git",
+      "build": "make",
+      "test": "make test"
+    },
+    {
+      "name": "universal-connection-manager",
+      "path": "../universal-connection-manager", 
+      "url": "git@github.com:imprivata-pas/universal-connection-manager.git",
+      "build": "make",
+      "test": "make test"
+    },
+    {
+      "name": "audit",
+      "path": "../audit",
+      "url": "git@github.com:imprivata-pas/audit.git",
+      "build": "mvn compile",
+      "test": "mvn test"
+    },
+    {
+      "name": "connect",
+      "path": "../connect",
+      "url": "git@github.com:imprivata-pas/connect.git",
+      "build": "mvn compile",
+      "test": "mvn test"
+    },
+    {
+      "name": "parent",
+      "path": "../parent",
+      "url": "git@github.com:imprivata-pas/parent.git",
+      "build": "mvn compile",
+      "test": "mvn test"
+    },
+    {
+      "name": "go-sdk",
+      "path": "../go-sdk",
+      "url": "git@github.com:imprivata-pas/go-sdk.git",
+      "build": "go build ./...",
+      "test": "go test ./..."
+    },
+    {
+      "name": "RDP2-Converter-rpm",
+      "path": "../RDP2-Converter-rpm",
+      "url": "git@github.com:imprivata-pas/RDP2-Converter-rpm.git",
+      "build": "make",
+      "test": "make test"
+    },
+    {
+      "name": "third-party-conan",
+      "path": "../third-party-conan",
+      "url": "git@github.com:imprivata-pas/third-party-conan.git",
+      "build": "make",
+      "test": "make test"
+    },
+    {
+      "name": "sl-conan-config",
+      "path": "../sl-conan-config",
+      "url": "git@github.com:imprivata-pas/sl-conan-config.git",
+      "build": "make",
+      "test": "make test"
+    }
+  ]
+}
