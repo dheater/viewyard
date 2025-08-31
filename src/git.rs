@@ -33,6 +33,18 @@ pub fn run_git_command_string(args: &[&str], cwd: Option<&Path>) -> Result<Strin
         .to_string())
 }
 
+/// Run a git command and ensure it succeeds (helper for commands that don't need output)
+fn run_git_command_checked(args: &[&str], cwd: Option<&Path>) -> Result<()> {
+    let output = run_git_command(args, cwd)?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Git command failed: git {}\n{}", args.join(" "), stderr.trim());
+    }
+
+    Ok(())
+}
+
 /// Check if a directory is a git repository
 #[must_use]
 pub fn is_git_repo(path: &Path) -> bool {
@@ -62,13 +74,30 @@ pub fn clone_repo(url: &str, target_dir: &Path) -> Result<()> {
 
 /// Add a submodule to a repository
 pub fn add_submodule(repo_url: &str, path: &str, cwd: &Path) -> Result<()> {
-    run_git_command(&["submodule", "add", repo_url, path], Some(cwd))?;
+    let output = run_git_command(&["submodule", "add", repo_url, path], Some(cwd))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "Failed to add submodule '{}' from '{}': {}",
+            path,
+            repo_url,
+            stderr.trim()
+        );
+    }
+
     Ok(())
 }
 
 /// Update submodules
 pub fn update_submodules(cwd: &Path) -> Result<()> {
-    run_git_command(&["submodule", "update", "--init", "--recursive"], Some(cwd))?;
+    let output = run_git_command(&["submodule", "update", "--init", "--recursive"], Some(cwd))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Failed to update submodules: {}", stderr.trim());
+    }
+
     Ok(())
 }
 
@@ -201,4 +230,16 @@ pub fn get_unpushed_commits_info(cwd: &Path) -> Result<String> {
             Ok(format!("{count} commits"))
         }
     })
+}
+
+/// Check if a branch exists
+pub fn branch_exists(branch_name: &str, cwd: &Path) -> Result<bool> {
+    let result = run_git_command(&["show-ref", "--verify", "--quiet", &format!("refs/remotes/{}", branch_name)], Some(cwd));
+    Ok(result.is_ok())
+}
+
+/// Perform a fast-forward merge
+pub fn merge_fast_forward(branch_name: &str, cwd: &Path) -> Result<()> {
+    run_git_command(&["merge", "--ff-only", branch_name], Some(cwd))?;
+    Ok(())
 }

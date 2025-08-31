@@ -103,8 +103,74 @@ fn workspace_status() -> Result<()> {
 
 fn workspace_rebase() -> Result<()> {
     ui::print_header("Rebasing repositories");
-    // TODO: Implement rebase for all repos
-    ui::print_success("All repositories rebased successfully");
+
+    let current_dir = std::env::current_dir()?;
+    let view_context = load_view_context(&current_dir)?;
+
+    let mut rebased_repos = Vec::new();
+    let mut error_repos = Vec::new();
+    let mut repos_to_rebase = Vec::new();
+
+    // First pass: identify repos that exist and are git repositories
+    for repo_name in &view_context.active_repos {
+        let repo_path = view_context.view_root.join(repo_name);
+
+        if !repo_path.exists() || !git::is_git_repo(&repo_path) {
+            ui::print_warning(&format!(
+                "⚠️  {}: Directory not found or not a git repository",
+                repo_name
+            ));
+            continue;
+        }
+
+        repos_to_rebase.push(repo_name.clone());
+    }
+
+    if repos_to_rebase.is_empty() {
+        ui::print_info("No repositories found to rebase");
+        return Ok(());
+    }
+
+    ui::print_info(&format!("Found {} repositories to rebase", repos_to_rebase.len()));
+
+    // Second pass: perform rebase operations
+    for repo_name in repos_to_rebase {
+        let repo_path = view_context.view_root.join(&repo_name);
+
+        ui::print_info(&format!("🔄 Rebasing {}", repo_name));
+
+        match rebase_repo(&repo_path) {
+            Ok(()) => {
+                ui::print_success(&format!("✅ {}: Rebased successfully", repo_name));
+                rebased_repos.push(repo_name);
+            }
+            Err(e) => {
+                ui::print_error(&format!("❌ {}: Failed to rebase - {}", repo_name, e));
+                error_repos.push((repo_name, e.to_string()));
+            }
+        }
+    }
+
+    // Summary
+    if !rebased_repos.is_empty() {
+        ui::print_success(&format!(
+            "✅ Successfully rebased {} repositories: {}",
+            rebased_repos.len(),
+            rebased_repos.join(", ")
+        ));
+    }
+
+    if !error_repos.is_empty() {
+        ui::print_error(&format!(
+            "❌ Failed to rebase {} repositories",
+            error_repos.len()
+        ));
+        for (repo, error) in &error_repos {
+            ui::print_error(&format!("   {}: {}", repo, error));
+        }
+        anyhow::bail!("Some repositories failed to rebase");
+    }
+
     Ok(())
 }
 
@@ -214,6 +280,34 @@ fn workspace_commit_all(message: &str) -> Result<()> {
 fn commit_repo_changes(repo_path: &Path, message: &str) -> Result<()> {
     git::add_all(repo_path)?;
     git::commit(message, repo_path)?;
+    Ok(())
+}
+
+fn rebase_repo(repo_path: &Path) -> Result<()> {
+    // First, fetch the latest changes
+    git::fetch(repo_path)?;
+
+    // Get the current branch name
+    let current_branch = git::get_current_branch(repo_path)?;
+
+    // Rebase against origin/main or origin/master
+    // Try main first, then master as fallback
+    let rebase_target = if git::branch_exists("origin/main", repo_path)? {
+        "origin/main"
+    } else if git::branch_exists("origin/master", repo_path)? {
+        "origin/master"
+    } else {
+        anyhow::bail!("Neither origin/main nor origin/master branch found");
+    };
+
+    // Only rebase if we're not already on the target branch
+    if current_branch != "main" && current_branch != "master" {
+        git::rebase(rebase_target, repo_path)?;
+    } else {
+        // If we're on main/master, just fast-forward merge
+        git::merge_fast_forward(rebase_target, repo_path)?;
+    }
+
     Ok(())
 }
 
