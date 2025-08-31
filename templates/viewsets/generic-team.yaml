@@ -7,74 +7,48 @@ viewsets:
       # Frontend services
       - name: web-app
         url: git@github.com:company/web-app.git
-        build: npm run build
-        test: npm test
-      
+
       - name: mobile-app
         url: git@github.com:company/mobile-app.git
-        build: flutter build
-        test: flutter test
-      
+
       # Backend services
       - name: api-gateway
         url: git@github.com:company/api-gateway.git
-        build: go build ./...
-        test: go test ./...
-      
+
       - name: user-service
         url: git@github.com:company/user-service.git
-        build: mvn compile
-        test: mvn test
-      
+
       - name: payment-service
         url: git@github.com:company/payment-service.git
-        build: cargo build
-        test: cargo test
-      
+
       # Infrastructure
       - name: infrastructure
         url: git@github.com:company/infrastructure.git
-        build: terraform plan
-        test: terraform validate
-      
+
       - name: monitoring
         url: git@github.com:company/monitoring.git
-        build: docker build .
-        test: docker run --rm test
-      
+
       # Documentation
       - name: docs
         url: git@github.com:company/docs.git
-        build: mkdocs build
-        test: mkdocs serve --dev-addr=0.0.0.0:8001
 
   personal:
     repos:
       # Personal projects
       - name: portfolio-site
         url: git@github.com:username/portfolio-site.git
-        build: hugo build
-        test: hugo server
-      
+
       - name: side-project
         url: git@github.com:username/side-project.git
-        build: npm run build
-        test: npm test
-      
+
       - name: learning-rust
         url: git@github.com:username/learning-rust.git
-        build: cargo build
-        test: cargo test
 
   client-alpha:
     repos:
       # Client-specific repositories
       - name: alpha-integration
         url: git@github.com:company/alpha-integration.git
-        build: make
-        test: make test
-      
+
       - name: alpha-config
         url: git@github.com:company/alpha-config.git
-        build: echo "Config only"
-        test: echo "Config validation"

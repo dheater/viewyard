@@ -3,7 +3,6 @@ use clap::Subcommand;
 use std::fs;
 use std::path::Path;
 
-use crate::config;
 use crate::git;
 use crate::ui;
 
@@ -13,17 +12,13 @@ pub enum WorkspaceCommand {
     Status,
     /// Rebase repos against origin/master
     Rebase,
-    /// Build repos with changes
-    Build,
-    /// Run tests on repos with changes
-    Test,
-    /// Commit to all dirty repos
+    /// Commit to all dirty repos (only repos with changes)
     #[command(name = "commit-all")]
     CommitAll {
         /// Commit message
         message: String,
     },
-    /// Push repos with commits ahead
+    /// Push repos with commits ahead (only repos with unpushed commits)
     #[command(name = "push-all")]
     PushAll,
 }
@@ -32,8 +27,6 @@ pub fn handle_command(command: WorkspaceCommand) -> Result<()> {
     match command {
         WorkspaceCommand::Status => workspace_status(),
         WorkspaceCommand::Rebase => workspace_rebase(),
-        WorkspaceCommand::Build => workspace_build(),
-        WorkspaceCommand::Test => workspace_test(),
         WorkspaceCommand::CommitAll { message } => workspace_commit_all(&message),
         WorkspaceCommand::PushAll => workspace_push_all(),
     }
@@ -56,6 +49,12 @@ fn workspace_status() -> Result<()> {
 
     ui::print_info("");
 
+    // Collect branch information for consistency check
+    let mut repo_branches = Vec::new();
+    let mut clean_count = 0;
+    let mut dirty_count = 0;
+    let mut ahead_count = 0;
+
     for repo_name in &view_context.active_repos {
         let repo_path = view_context.view_root.join(repo_name);
 
@@ -69,12 +68,35 @@ fn workspace_status() -> Result<()> {
             continue;
         }
 
+        // Get branch for consistency check
+        let branch = git::get_current_branch(&repo_path).unwrap_or_else(|_| "unknown".to_string());
+        repo_branches.push((repo_name.clone(), branch.clone()));
+
         // Get repository status
         match get_repo_status(&repo_path, repo_name) {
-            Ok(status) => ui::print_info(&status),
-            Err(e) => ui::print_warning(&format!("⚠️  {}: Error getting status - {}", repo_name, e)),
+            Ok(Some(status)) => {
+                println!("{}", status);
+                if status.contains("changes") {
+                    dirty_count += 1;
+                }
+                if status.contains("ahead") {
+                    ahead_count += 1;
+                }
+            }
+            Ok(None) => {
+                // Show clean repos too
+                println!("✓ {} ({}) - clean", repo_name, branch);
+                clean_count += 1;
+            }
+            Err(e) => {
+                ui::print_warning(&format!("⚠️  {}: Error getting status - {}", repo_name, e))
+            }
         }
     }
+
+    // Check branch consistency and show summary
+    check_branch_consistency(&repo_branches);
+    show_status_summary(clean_count, dirty_count, ahead_count, &repo_branches);
 
     Ok(())
 }
@@ -86,158 +108,104 @@ fn workspace_rebase() -> Result<()> {
     Ok(())
 }
 
-fn workspace_build() -> Result<()> {
-    ui::print_header("Building repositories with changes");
-
-    let current_dir = std::env::current_dir()?;
-    let view_context = load_view_context(&current_dir)?;
-
-    // Load viewsets config to get build commands
-    let config = config::load_viewsets_config()?;
-    let viewset_name = config::detect_current_viewset()
-        .ok_or_else(|| anyhow::anyhow!("Could not detect current viewset"))?;
-    let viewset = config.viewsets.get(&viewset_name)
-        .ok_or_else(|| anyhow::anyhow!("Viewset '{}' not found", viewset_name))?;
-
-    let mut built_repos = Vec::new();
-    let mut skipped_repos = Vec::new();
-    let mut error_repos = Vec::new();
-
-    for repo_name in &view_context.active_repos {
-        let repo_path = view_context.view_root.join(repo_name);
-
-        if !repo_path.exists() || !git::is_git_repo(&repo_path) {
-            error_repos.push(repo_name.clone());
-            continue;
-        }
-
-        // Find the repository configuration
-        let repo_config = viewset.repos.iter()
-            .find(|r| r.name == *repo_name);
-
-        match repo_config.and_then(|r| r.build.as_ref()) {
-            Some(build_command) => {
-                // Check if repo has changes
-                match git::has_uncommitted_changes(&repo_path) {
-                    Ok(true) => {
-                        ui::print_info(&format!("Building {} with: {}", repo_name, build_command));
-                        match run_build_command(&repo_path, build_command) {
-                            Ok(()) => built_repos.push(repo_name.clone()),
-                            Err(e) => {
-                                ui::print_warning(&format!("Build failed for {}: {}", repo_name, e));
-                                error_repos.push(repo_name.clone());
-                            }
-                        }
-                    }
-                    Ok(false) => {
-                        ui::print_info(&format!("Skipping {} (no changes)", repo_name));
-                        skipped_repos.push(repo_name.clone());
-                    }
-                    Err(e) => {
-                        ui::print_warning(&format!("Error checking status of {}: {}", repo_name, e));
-                        error_repos.push(repo_name.clone());
-                    }
-                }
-            }
-            None => {
-                ui::print_info(&format!("Skipping {} (no build command configured)", repo_name));
-                skipped_repos.push(repo_name.clone());
-            }
-        }
-    }
-
-    // Summary
-    ui::print_info("");
-    if !built_repos.is_empty() {
-        ui::print_success(&format!("✅ Built {} repositories: {}",
-            built_repos.len(), built_repos.join(", ")));
-    }
-    if !skipped_repos.is_empty() {
-        ui::print_info(&format!("⏭️ Skipped {} repositories: {}",
-            skipped_repos.len(), skipped_repos.join(", ")));
-    }
-    if !error_repos.is_empty() {
-        ui::print_warning(&format!("⚠️ {} repositories had errors: {}",
-            error_repos.len(), error_repos.join(", ")));
-    }
-
-    Ok(())
-}
-
-fn run_build_command(repo_path: &Path, build_command: &str) -> Result<()> {
-    use std::process::Command;
-
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(build_command)
-        .current_dir(repo_path)
-        .output()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("Build command failed: {}", stderr);
-    }
-
-    Ok(())
-}
-
-fn workspace_test() -> Result<()> {
-    ui::print_header("Testing repositories with changes");
-    // TODO: Implement test for repos with changes
-    ui::print_success("Tests completed successfully");
-    Ok(())
-}
-
 fn workspace_commit_all(message: &str) -> Result<()> {
-    ui::print_header(&format!("Committing all dirty repos: {}", message));
+    ui::print_header(&format!(
+        "Committing repositories with changes: {}",
+        message
+    ));
 
     let current_dir = std::env::current_dir()?;
     let view_context = load_view_context(&current_dir)?;
 
     let mut committed_repos = Vec::new();
-    let mut clean_repos = Vec::new();
     let mut error_repos = Vec::new();
+    let mut repos_to_commit = Vec::new();
 
+    // First pass: identify repos that need committing
     for repo_name in &view_context.active_repos {
         let repo_path = view_context.view_root.join(repo_name);
 
         if !repo_path.exists() || !git::is_git_repo(&repo_path) {
-            error_repos.push(repo_name.clone());
+            ui::print_warning(&format!(
+                "⚠️  {}: Directory not found or not a git repository",
+                repo_name
+            ));
             continue;
         }
 
         match git::has_uncommitted_changes(&repo_path) {
             Ok(true) => {
-                ui::print_info(&format!("Committing changes in {}", repo_name));
-                match commit_repo_changes(&repo_path, message) {
-                    Ok(()) => committed_repos.push(repo_name.clone()),
-                    Err(e) => {
-                        ui::print_warning(&format!("Failed to commit {}: {}", repo_name, e));
-                        error_repos.push(repo_name.clone());
-                    }
-                }
+                repos_to_commit.push(repo_name.clone());
             }
-            Ok(false) => clean_repos.push(repo_name.clone()),
+            Ok(false) => {
+                // Skip clean repos silently
+            }
             Err(e) => {
-                ui::print_warning(&format!("Error checking status of {}: {}", repo_name, e));
-                error_repos.push(repo_name.clone());
+                ui::print_warning(&format!("⚠️  {}: Error checking status - {}", repo_name, e));
             }
         }
     }
 
-    // Summary
-    ui::print_info("");
+    if repos_to_commit.is_empty() {
+        ui::print_info("No repositories have uncommitted changes");
+        return Ok(());
+    }
+
+    ui::print_info(&format!(
+        "Found {} repositories with changes",
+        repos_to_commit.len()
+    ));
+
+    // Second pass: commit changes with rollback on failure
+    for repo_name in &repos_to_commit {
+        let repo_path = view_context.view_root.join(repo_name);
+
+        ui::print_info(&format!("Committing changes in {}", repo_name));
+        match commit_repo_changes(&repo_path, message) {
+            Ok(()) => {
+                committed_repos.push(repo_name.clone());
+            }
+            Err(e) => {
+                ui::print_error(&format!("❌ Failed to commit {}: {}", repo_name, e));
+                error_repos.push(repo_name.clone());
+
+                // Rollback: reset any staged changes
+                if let Err(reset_err) = git::run_git_command(&["reset", "HEAD"], Some(&repo_path)) {
+                    ui::print_warning(&format!(
+                        "⚠️  Failed to rollback staged changes in {}: {}",
+                        repo_name, reset_err
+                    ));
+                }
+
+                // Stop on first failure and inform user
+                ui::print_error("❌ Commit operation stopped due to failure");
+                ui::print_info(
+                    "💡 Fix the issue in the failed repository and run the command again",
+                );
+                ui::print_info(&format!(
+                    "💡 Successfully committed repositories: {}",
+                    if committed_repos.is_empty() {
+                        "none".to_string()
+                    } else {
+                        committed_repos.join(", ")
+                    }
+                ));
+
+                return Err(anyhow::anyhow!(
+                    "Commit failed for repository: {}",
+                    repo_name
+                ));
+            }
+        }
+    }
+
+    // Success summary
     if !committed_repos.is_empty() {
-        ui::print_success(&format!("✅ Committed {} repositories: {}",
-            committed_repos.len(), committed_repos.join(", ")));
-    }
-    if !clean_repos.is_empty() {
-        ui::print_info(&format!("🔄 {} repositories were already clean: {}",
-            clean_repos.len(), clean_repos.join(", ")));
-    }
-    if !error_repos.is_empty() {
-        ui::print_warning(&format!("⚠️ {} repositories had errors: {}",
-            error_repos.len(), error_repos.join(", ")));
+        ui::print_success(&format!(
+            "✅ Successfully committed {} repositories: {}",
+            committed_repos.len(),
+            committed_repos.join(", ")
+        ));
     }
 
     Ok(())
@@ -250,55 +218,91 @@ fn commit_repo_changes(repo_path: &Path, message: &str) -> Result<()> {
 }
 
 fn workspace_push_all() -> Result<()> {
-    ui::print_header("Pushing repositories with commits ahead");
+    ui::print_header("Pushing repositories with unpushed commits");
 
     let current_dir = std::env::current_dir()?;
     let view_context = load_view_context(&current_dir)?;
 
     let mut pushed_repos = Vec::new();
-    let mut clean_repos = Vec::new();
-    let mut error_repos = Vec::new();
+    let mut repos_to_push = Vec::new();
 
+    // First pass: identify repos that need pushing
     for repo_name in &view_context.active_repos {
         let repo_path = view_context.view_root.join(repo_name);
 
         if !repo_path.exists() || !git::is_git_repo(&repo_path) {
-            error_repos.push(repo_name.clone());
+            ui::print_warning(&format!(
+                "⚠️  {}: Directory not found or not a git repository",
+                repo_name
+            ));
             continue;
         }
 
         match git::has_unpushed_commits(&repo_path) {
             Ok(true) => {
-                ui::print_info(&format!("Pushing commits in {}", repo_name));
-                match git::push(&repo_path) {
-                    Ok(()) => pushed_repos.push(repo_name.clone()),
-                    Err(e) => {
-                        ui::print_warning(&format!("Failed to push {}: {}", repo_name, e));
-                        error_repos.push(repo_name.clone());
-                    }
-                }
+                repos_to_push.push(repo_name.clone());
             }
-            Ok(false) => clean_repos.push(repo_name.clone()),
+            Ok(false) => {
+                // Skip repos with nothing to push silently
+            }
             Err(e) => {
-                ui::print_warning(&format!("Error checking push status of {}: {}", repo_name, e));
-                error_repos.push(repo_name.clone());
+                ui::print_warning(&format!(
+                    "⚠️  {}: Error checking push status - {}",
+                    repo_name, e
+                ));
             }
         }
     }
 
-    // Summary
-    ui::print_info("");
+    if repos_to_push.is_empty() {
+        ui::print_info("No repositories have unpushed commits");
+        return Ok(());
+    }
+
+    ui::print_info(&format!(
+        "Found {} repositories with unpushed commits",
+        repos_to_push.len()
+    ));
+
+    // Second pass: push commits with failure handling
+    for repo_name in &repos_to_push {
+        let repo_path = view_context.view_root.join(repo_name);
+
+        ui::print_info(&format!("Pushing commits in {}", repo_name));
+        match git::push(&repo_path) {
+            Ok(()) => {
+                pushed_repos.push(repo_name.clone());
+            }
+            Err(e) => {
+                ui::print_error(&format!("❌ Failed to push {}: {}", repo_name, e));
+
+                // For push failures, we can't really rollback, but we can inform the user
+                ui::print_error("❌ Push operation stopped due to failure");
+                ui::print_info("💡 Common solutions:");
+                ui::print_info("   • Pull latest changes: git pull");
+                ui::print_info("   • Check remote permissions");
+                ui::print_info("   • Verify network connection");
+                ui::print_info(&format!(
+                    "💡 Successfully pushed repositories: {}",
+                    if pushed_repos.is_empty() {
+                        "none".to_string()
+                    } else {
+                        pushed_repos.join(", ")
+                    }
+                ));
+
+                return Err(anyhow::anyhow!("Push failed for repository: {}", repo_name));
+            }
+        }
+    }
+
+    // Success summary
     if !pushed_repos.is_empty() {
-        ui::print_success(&format!("✅ Pushed {} repositories: {}",
-            pushed_repos.len(), pushed_repos.join(", ")));
-    }
-    if !clean_repos.is_empty() {
-        ui::print_info(&format!("🔄 {} repositories had nothing to push: {}",
-            clean_repos.len(), clean_repos.join(", ")));
-    }
-    if !error_repos.is_empty() {
-        ui::print_warning(&format!("⚠️ {} repositories had errors: {}",
-            error_repos.len(), error_repos.join(", ")));
+        ui::print_success(&format!(
+            "✅ Successfully pushed {} repositories: {}",
+            pushed_repos.len(),
+            pushed_repos.join(", ")
+        ));
     }
 
     Ok(())
@@ -336,7 +340,7 @@ fn load_view_context(current_dir: &Path) -> Result<ViewContext> {
                 .as_sequence()
                 .ok_or_else(|| anyhow::anyhow!("Missing active_repos in context file"))?
                 .iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .filter_map(|v| v.as_str().map(std::string::ToString::to_string))
                 .collect();
 
             return Ok(ViewContext {
@@ -355,10 +359,9 @@ fn load_view_context(current_dir: &Path) -> Result<ViewContext> {
     anyhow::bail!("Not in a viewyard view directory. Run this command from within a view.")
 }
 
-fn get_repo_status(repo_path: &Path, repo_name: &str) -> Result<String> {
+fn get_repo_status(repo_path: &Path, repo_name: &str) -> Result<Option<String>> {
     // Get current branch
-    let branch = git::get_current_branch(repo_path)
-        .unwrap_or_else(|_| "unknown".to_string());
+    let branch = git::get_current_branch(repo_path).unwrap_or_else(|_| "unknown".to_string());
 
     // Check for uncommitted changes
     let has_changes = git::has_uncommitted_changes(repo_path)?;
@@ -366,25 +369,117 @@ fn get_repo_status(repo_path: &Path, repo_name: &str) -> Result<String> {
     // Check for unpushed commits
     let has_unpushed = git::has_unpushed_commits(repo_path)?;
 
-    // Build status string
-    let mut status_parts = vec![format!("📁 {}", repo_name)];
+    // Check for stashes
+    let stash_count = git::get_stash_count(repo_path)?;
 
-    // Add branch info
-    status_parts.push(format!("({})", branch));
+    // Skip completely clean repos
+    if !has_changes && !has_unpushed && stash_count == 0 {
+        return Ok(None);
+    }
 
-    // Add status indicators
-    let mut indicators = Vec::new();
+    // Build concise one-line status
+    let mut status_parts = Vec::new();
+
     if has_changes {
-        indicators.push("🔄 changes");
+        // Count changes
+        match git::get_status(repo_path) {
+            Ok(status_output) => {
+                let change_count = status_output.lines().count();
+                if change_count > 0 {
+                    status_parts.push(format!("{} changes", change_count));
+                }
+            }
+            Err(_) => {
+                status_parts.push("changes".to_string());
+            }
+        }
     }
+
     if has_unpushed {
-        indicators.push("⬆️ unpushed");
-    }
-    if indicators.is_empty() {
-        indicators.push("✅ clean");
+        match git::run_git_command_string(&["rev-list", "--count", "@{u}..HEAD"], Some(repo_path)) {
+            Ok(count_str) => {
+                if let Ok(count) = count_str.parse::<u32>() {
+                    if count > 0 {
+                        status_parts.push(format!("{} commits ahead", count));
+                    }
+                }
+            }
+            Err(_) => {
+                status_parts.push("commits ahead".to_string());
+            }
+        }
     }
 
-    status_parts.push(format!("[{}]", indicators.join(", ")));
+    if stash_count > 0 {
+        status_parts.push(format!("{} stashes", stash_count));
+    }
 
-    Ok(status_parts.join(" "))
+    let status_summary = if status_parts.is_empty() {
+        "clean".to_string()
+    } else {
+        status_parts.join(", ")
+    };
+
+    let icon = if has_changes { "⚠" } else { "→" };
+
+    Ok(Some(format!("{} {} ({}) - {}", icon, repo_name, branch, status_summary)))
+}
+
+fn check_branch_consistency(repo_branches: &[(String, String)]) {
+    if repo_branches.len() <= 1 {
+        return;
+    }
+
+    // Group repos by branch
+    let mut branch_groups: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for (repo, branch) in repo_branches {
+        branch_groups.entry(branch.clone()).or_default().push(repo.clone());
+    }
+
+    if branch_groups.len() > 1 {
+        ui::print_warning("⚠️  Branch mismatch detected:");
+        for (branch, repos) in &branch_groups {
+            if repos.len() == 1 {
+                ui::print_warning(&format!("  - {}: {}", repos[0], branch));
+            } else {
+                ui::print_info(&format!("  - {} repos on: {}", repos.len(), branch));
+            }
+        }
+        println!();
+    }
+}
+
+fn show_status_summary(clean_count: usize, dirty_count: usize, ahead_count: usize, repo_branches: &[(String, String)]) {
+    let total = clean_count + dirty_count;
+    let mut summary_parts = Vec::new();
+
+    if clean_count > 0 {
+        summary_parts.push(format!("{} clean", clean_count));
+    }
+    if dirty_count > 0 {
+        summary_parts.push(format!("{} dirty", dirty_count));
+    }
+    if ahead_count > 0 {
+        summary_parts.push(format!("{} ahead", ahead_count));
+    }
+
+    let status_summary = if summary_parts.is_empty() {
+        "all clean".to_string()
+    } else {
+        summary_parts.join(", ")
+    };
+
+    // Check if all repos are on the same branch
+    let branch_consistency = if repo_branches.len() <= 1 {
+        "".to_string()
+    } else {
+        let first_branch = &repo_branches[0].1;
+        if repo_branches.iter().all(|(_, branch)| branch == first_branch) {
+            format!(" | All on {} ✓", first_branch)
+        } else {
+            " | Mixed branches ⚠️".to_string()
+        }
+    };
+
+    ui::print_info(&format!("{} repos: {}{}", total, status_summary, branch_consistency));
 }

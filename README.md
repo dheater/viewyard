@@ -8,14 +8,13 @@ A clean, simple workspace for coordinated development across multiple repositori
 
 ```bash
 # Create a task view (interactive)
-just view create CLIENTS-469
+viewyard view create CLIENTS-469
 
 # Navigate to your isolated workspace
 cd src-<viewset>/views/CLIENTS-469
 
 # Start working
-just status
-just build
+viewyard status
 ```
 
 ## 🎯 Core Concepts
@@ -40,10 +39,10 @@ Organize your repositories by context (work, personal, client, etc.):
 
 ### View Management
 ```bash
-just view create <task-name>                    # Interactive repo selection (default viewset)
-just view create --viewset <name> <task-name>  # Use specific viewset
-just view list                                  # Show all views across viewsets
-just view delete <task> force                   # Clean up completed work
+viewyard view create <task-name>                    # Interactive repo selection (default viewset)
+viewyard view create --viewset <name> <task-name>  # Use specific viewset
+viewyard view list                                  # Show all views across viewsets
+viewyard view delete <task> --force                # Clean up completed work
 ```
 
 ### Viewset Configuration
@@ -55,23 +54,17 @@ viewsets:
     repos:
       - name: api-service
         url: git@github.com:company/api-service.git
-        build: make
-        test: make test
   personal:
     repos:
       - name: my-project
         url: git@github.com:me/my-project.git
-        build: npm run build
-        test: npm test
 ```
 
 ### Within a View (cd ~/src/<viewset>/views/<task>/)
 ```bash
-just status                         # Status of all repos in view
-just rebase                         # Rebase against origin/master
-just build                          # Build only repos with changes
-just commit-all "message"           # Commit to all dirty repos
-just push-all                       # Push repos with commits ahead
+viewyard status                     # Status of all repos in view
+viewyard commit-all "message"       # Commit to all dirty repos
+viewyard push-all                   # Push repos with commits ahead
 ```
 
 ## 🏗️ How It Works
@@ -84,14 +77,10 @@ viewsets:
     repos:
       - name: api-service
         url: git@github.com:company/api-service.git
-        build: make
-        test: make test
   personal:
     repos:
       - name: my-project
         url: git@github.com:me/my-project.git
-        build: npm run build
-        test: npm test
 ```
 
 ### 2. Create a Task View
@@ -112,19 +101,17 @@ cd ~/src/work/views/CLIENTS-469
 # You now have:
 # - api-service/             (on CLIENTS-469 branch)
 # - another-service/         (on CLIENTS-469 branch)
-# - justfile                 (view-specific commands)
 ```
 
 ### 4. Use Smart Commands
 ```bash
-just build                  # Only builds repos with uncommitted changes
-just commit-all "Fix bug"   # Commits to all dirty repos
-just push-all              # Pushes only repos with commits ahead
+viewyard commit-all "Fix bug"   # Commits to all dirty repos
+viewyard push-all              # Pushes only repos with commits ahead
 ```
 
-### 4. Clean Up When Done
+### 5. Clean Up When Done
 ```bash
-just view delete CLIENTS-469 force
+viewyard view delete CLIENTS-469 --force
 # Removes entire view - no Git complexity
 ```
 
@@ -148,21 +135,18 @@ just view delete CLIENTS-469 force
 ## 📁 Workspace Structure
 
 ```
-viewyard/                        # Coordination workspace
-├── justfile                     # Main commands
-├── scripts/                     # Automation (nushell)
+viewyard/                        # Coordination workspace (Rust binary)
+├── src/                         # Source code
 ├── templates/                   # View templates
 └── docs/                        # Documentation
 
-views/                           # Task workspaces
+~/src/<viewset>/views/           # Task workspaces
 ├── CLIENTS-469/                 # Your task view
 │   ├── librssconnect/           # Repo on task branch
-│   ├── universal-connection-manager/
-│   └── justfile                 # View commands
+│   └── universal-connection-manager/
 └── security-audit/              # Another task view
     ├── audit/
-    ├── connect/
-    └── justfile
+    └── connect/
 ```
 
 ## 🔧 Repository Management
@@ -180,46 +164,17 @@ Example repositories:
 
 ## 🚀 Getting Started
 
-### Quick Onboarding (New Users)
-
-**Step 1: Clone and run onboarding**
-```bash
-git clone https://github.com/your-org/viewyard.git ~/src/viewyard
-cd ~/src/viewyard
-
-# Install PyYAML if needed
-pip install PyYAML
-
-# Run onboarding
-just onboard
-```
-
-The onboarding script will:
-- ✅ Check prerequisites (git, just, python, PyYAML)
-- ✅ Set up git configuration for work/personal contexts
-- ✅ Create starter viewsets configuration
-- ✅ Validate everything is working
-
-**Step 2: Customize your repositories**
-```bash
-# Edit the generated config with your actual repos
-vim ~/.config/viewyard/viewsets.yaml
-```
-
-**Step 3: Create your first view**
-```bash
-just view create my-first-task
-# Select repos interactively, then:
-cd src-work/views/my-first-task
-just status
-```
-
-### Manual Setup
-
 ### Prerequisites
 - Git with SSH access to your repositories
-- Just (command runner): `brew install just`
-- Python 3 with PyYAML: `pip install PyYAML`
+- Rust toolchain (for building viewyard)
+
+### Quality Tools
+Viewyard uses standard Cargo quality tools:
+- `cargo fmt` - Automatic code formatting
+- `cargo clippy` - Linting and static analysis
+- `cargo test` - Run tests
+
+These are configured in `Cargo.toml` and run automatically during development.
 
 ### Git Configuration for Multiple Contexts
 Configure git to use different credentials for different viewsets:
@@ -242,28 +197,24 @@ Configure git to use different credentials for different viewsets:
     email = "you@personal.com"
 ```
 
-### Manual Setup
+### Setup
 ```bash
-# Clone the coordination workspace
+# Clone and build viewyard
 git clone https://github.com/your-org/viewyard.git ~/src/viewyard
 cd ~/src/viewyard
+cargo build --release
 
 # Configure your viewsets
 mkdir -p ~/.config/viewyard
 cp templates/viewsets/starter.yaml ~/.config/viewyard/viewsets.yaml
 # Edit ~/.config/viewyard/viewsets.yaml with your repositories
 
-# Set up git config (see Git Configuration section above)
-
-# Validate setup
-just view validate
-
 # Create your first task view
-just view create my-first-task
+viewyard view create my-first-task
 
 # Navigate and start working
 cd ~/src/<viewset>/views/my-first-task
-just status
+viewyard status
 ```
 
 ## 💡 Examples

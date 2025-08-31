@@ -7,36 +7,24 @@ viewsets:
       # Replace these with your actual work repositories
       - name: api-service
         url: git@github.com:company/api-service.git
-        build: make
-        test: make test
-      
+
       - name: web-app
         url: git@github.com:company/web-app.git
-        build: npm run build
-        test: npm test
-      
+
       - name: mobile-app
         url: git@github.com:company/mobile-app.git
-        build: flutter build
-        test: flutter test
 
   personal:
     repos:
       # Replace these with your personal repositories
       - name: my-project
         url: git@github.com:username/my-project.git
-        build: npm run build
-        test: npm test
-      
+
       - name: side-hustle
         url: git@github.com:username/side-hustle.git
-        build: cargo build
-        test: cargo test
 
 # Add more viewsets as needed:
 # client-name:
 #   repos:
 #     - name: client-integration
 #       url: git@github.com:company/client-integration.git
-#       build: make
-#       test: make test

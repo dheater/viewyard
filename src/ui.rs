@@ -55,24 +55,72 @@ pub fn print_separator() {
 
 /// Prompt user for input with a message
 pub fn prompt(message: &str) -> io::Result<String> {
-    print!("{}: ", message);
+    print!("{message}: ");
     io::stdout().flush()?;
-    
+
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
-    
+
     Ok(input.trim().to_string())
 }
 
 /// Prompt user for yes/no confirmation
 pub fn confirm(message: &str) -> io::Result<bool> {
     loop {
-        let response = prompt(&format!("{} (y/n)", message))?;
+        let response = prompt(&format!("{message} (y/n)"))?;
         match response.to_lowercase().as_str() {
             "y" | "yes" => return Ok(true),
             "n" | "no" => return Ok(false),
-            _ => print_warning("Please enter 'y' or 'n'"),
+            "" => {
+                print_info("💡 Tip: Press 'y' for yes or 'n' for no, then Enter");
+            }
+            _ => {
+                print_warning("Please enter 'y' for yes or 'n' for no");
+                print_info("💡 Just type the letter and press Enter");
+            }
         }
+    }
+}
+
+/// Show a helpful error with suggestions
+pub fn show_error_with_help(error: &str, suggestions: &[&str]) {
+    print_error(&format!("❌ {error}"));
+    println!();
+    if !suggestions.is_empty() {
+        print_colored("💡 Here's how to fix it:", Colors::CYAN);
+        for (i, suggestion) in suggestions.iter().enumerate() {
+            println!("   {}. {}", i + 1, suggestion);
+        }
+        println!();
+    }
+}
+
+/// Show a warning with helpful context
+pub fn show_warning_with_context(warning: &str, context: &str) {
+    print_warning(&format!("⚠️  {warning}"));
+    print_info(&format!("ℹ️  {context}"));
+    println!();
+}
+
+/// Validate and prompt for a non-empty string
+pub fn prompt_required(message: &str) -> io::Result<String> {
+    loop {
+        let input = prompt(message)?;
+        let trimmed = input.trim();
+        if trimmed.is_empty() {
+            print_warning("This field is required - please enter a value");
+            continue;
+        }
+        if trimmed.contains('/') || trimmed.contains('\\') {
+            print_warning("Names cannot contain slashes (/ or \\)");
+            print_info("💡 Use letters, numbers, hyphens, and underscores only");
+            continue;
+        }
+        if trimmed.starts_with('.') {
+            print_warning("Names cannot start with a dot (.)");
+            continue;
+        }
+        return Ok(trimmed.to_string());
     }
 }
 
@@ -86,7 +134,7 @@ pub fn select_from_list<T: std::fmt::Display>(
         return Ok(vec![]);
     }
 
-    println!("{}", message);
+    println!("{message}");
     for (i, item) in items.iter().enumerate() {
         println!("  {}. {}", i + 1, item);
     }
@@ -99,14 +147,14 @@ pub fn select_from_list<T: std::fmt::Display>(
 
     loop {
         let input = prompt("")?;
-        
+
         if allow_multiple && input.trim().to_lowercase() == "all" {
             return Ok((0..items.len()).collect());
         }
 
         let selections: Result<Vec<usize>, _> = input
             .split_whitespace()
-            .map(|s| s.parse::<usize>())
+            .map(str::parse::<usize>)
             .collect();
 
         match selections {
@@ -145,7 +193,8 @@ pub struct ProgressIndicator {
 }
 
 impl ProgressIndicator {
-    pub fn new(message: String, total: usize) -> Self {
+    #[must_use]
+    pub const fn new(message: String, total: usize) -> Self {
         Self {
             message,
             step: 0,

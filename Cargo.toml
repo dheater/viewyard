@@ -13,7 +13,22 @@ clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 anyhow = "1"
+dirs = "5"
 
 [dev-dependencies]
 assert_cmd = "2"
 tempfile = "3"
+predicates = "3.0"
+
+# Clippy configuration - fail on warnings, no exceptions
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+
+# Allow some pedantic lints that are too noisy for this project
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+too_many_lines = "allow"
+multiple_crate_versions = "allow"

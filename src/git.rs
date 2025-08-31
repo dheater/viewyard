@@ -3,29 +3,30 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 /// Run a git command and return the output
-pub fn run_git_command(args: &[&str], cwd: Option<&Path>) -> Result<Output> {
+pub fn run_git_command(args: &[&str], working_dir: Option<&Path>) -> Result<Output> {
     let mut cmd = Command::new("git");
     cmd.args(args);
-    
-    if let Some(dir) = cwd {
+
+    if let Some(dir) = working_dir {
         cmd.current_dir(dir);
     }
-    
-    let output = cmd.output()
+
+    let output = cmd
+        .output()
         .with_context(|| format!("Failed to execute git command: git {}", args.join(" ")))?;
-    
+
     Ok(output)
 }
 
 /// Run a git command and return stdout as string
 pub fn run_git_command_string(args: &[&str], cwd: Option<&Path>) -> Result<String> {
     let output = run_git_command(args, cwd)?;
-    
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("Git command failed: git {}\n{}", args.join(" "), stderr);
     }
-    
+
     Ok(String::from_utf8(output.stdout)
         .context("Git command output is not valid UTF-8")?
         .trim()
@@ -33,6 +34,7 @@ pub fn run_git_command_string(args: &[&str], cwd: Option<&Path>) -> Result<Strin
 }
 
 /// Check if a directory is a git repository
+#[must_use]
 pub fn is_git_repo(path: &Path) -> bool {
     path.join(".git").exists()
 }
@@ -45,13 +47,15 @@ pub fn init_repo(path: &Path) -> Result<()> {
 
 /// Clone a repository
 pub fn clone_repo(url: &str, target_dir: &Path) -> Result<()> {
-    let parent = target_dir.parent()
+    let parent = target_dir
+        .parent()
         .context("Target directory has no parent")?;
-    
-    let dir_name = target_dir.file_name()
+
+    let dir_name = target_dir
+        .file_name()
         .context("Target directory has no name")?
         .to_string_lossy();
-    
+
     run_git_command(&["clone", url, &dir_name], Some(parent))?;
     Ok(())
 }
@@ -88,18 +92,11 @@ pub fn has_uncommitted_changes(cwd: &Path) -> Result<bool> {
 pub fn has_unpushed_commits(cwd: &Path) -> Result<bool> {
     // Get commits ahead of origin
     let result = run_git_command_string(&["rev-list", "--count", "@{u}..HEAD"], Some(cwd));
-    
-    match result {
-        Ok(count_str) => {
-            let count: u32 = count_str.parse().unwrap_or(0);
-            Ok(count > 0)
-        }
-        Err(_) => {
-            // If we can't determine, assume no unpushed commits
-            // This handles cases where there's no upstream branch
-            Ok(false)
-        }
-    }
+
+    result.map_or_else(|_| Ok(false), |count_str| {
+        let count: u32 = count_str.parse().unwrap_or(0);
+        Ok(count > 0)
+    })
 }
 
 /// Create and checkout a new branch
@@ -157,7 +154,7 @@ pub fn set_config(key: &str, value: &str, global: bool) -> Result<()> {
         args.push("--global");
     }
     args.extend(&[key, value]);
-    
+
     run_git_command(&args, None)?;
     Ok(())
 }
@@ -169,6 +166,39 @@ pub fn get_config(key: &str, global: bool) -> Result<String> {
         args.push("--global");
     }
     args.push(key);
-    
+
     run_git_command_string(&args, None)
+}
+
+/// Get detailed git status (human readable format)
+pub fn get_detailed_status(cwd: &Path) -> Result<String> {
+    run_git_command_string(&["status"], Some(cwd))
+}
+
+/// Get count of stashes
+pub fn get_stash_count(cwd: &Path) -> Result<usize> {
+    let result = run_git_command_string(&["stash", "list"], Some(cwd));
+
+    result.map_or_else(|_| Ok(0), |output| if output.is_empty() {
+        Ok(0)
+    } else {
+        Ok(output.lines().count())
+    })
+}
+
+/// Get information about unpushed commits
+pub fn get_unpushed_commits_info(cwd: &Path) -> Result<String> {
+    // Get count of commits ahead
+    let count_result = run_git_command_string(&["rev-list", "--count", "@{u}..HEAD"], Some(cwd));
+
+    count_result.map_or_else(|_| Ok("unknown".to_string()), |count_str| {
+        let count: usize = count_str.parse().unwrap_or(0);
+        if count == 0 {
+            Ok("0".to_string())
+        } else if count == 1 {
+            Ok("1 commit".to_string())
+        } else {
+            Ok(format!("{count} commits"))
+        }
+    })
 }

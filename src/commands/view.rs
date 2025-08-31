@@ -17,6 +17,9 @@ pub enum ViewCommand {
         /// Viewset to use (optional, will auto-detect or use default)
         #[arg(long)]
         viewset: Option<String>,
+        /// Template to use for repository selection
+        #[arg(long)]
+        template: Option<String>,
     },
     /// Delete a view
     Delete {
@@ -34,44 +37,137 @@ pub enum ViewCommand {
     },
     /// Validate viewsets configuration
     Validate,
-    /// Setup justfiles in viewset directories
-    #[command(name = "setup-justfiles")]
-    SetupJustfiles,
 }
 
 pub fn handle_command(command: ViewCommand) -> Result<()> {
     match command {
-        ViewCommand::Create { name, viewset } => create_view(&name, viewset.as_deref()),
+        ViewCommand::Create {
+            name,
+            viewset,
+            template,
+        } => create_view(&name, viewset.as_deref(), template.as_deref()),
         ViewCommand::Delete { name, force } => delete_view(&name, force),
         ViewCommand::List { viewset } => list_views(viewset.as_deref()),
         ViewCommand::Validate => validate_config(),
-        ViewCommand::SetupJustfiles => setup_justfiles(),
     }
 }
 
-fn create_view(name: &str, viewset: Option<&str>) -> Result<()> {
-    ui::print_info(&format!("Creating view: {}", name));
+fn create_view(name: &str, viewset: Option<&str>, template: Option<&str>) -> Result<()> {
+    // Validate view name
+    if name.trim().is_empty() {
+        ui::show_error_with_help(
+            "View name cannot be empty",
+            &["Provide a descriptive name like 'fix-auth-bug' or 'feature-login'"],
+        );
+        return Err(anyhow::anyhow!("Invalid view name"));
+    }
 
-    // Load configuration
-    let config = config::load_viewsets_config()?;
+    if name.contains('/') || name.contains('\\') {
+        ui::show_error_with_help(
+            "View names cannot contain slashes",
+            &[
+                "Use hyphens or underscores instead",
+                "Good: 'fix-auth-bug', 'feature_login'",
+                "Bad: 'fix/auth/bug', 'feature\\login'",
+            ],
+        );
+        return Err(anyhow::anyhow!("Invalid view name"));
+    }
 
-    // Determine viewset
+    if name.starts_with('.') {
+        ui::show_error_with_help(
+            "View names cannot start with a dot",
+            &["Use a regular name like 'my-task' instead of '.my-task'"],
+        );
+        return Err(anyhow::anyhow!("Invalid view name"));
+    }
+
+    if name.len() > 100 {
+        ui::show_error_with_help(
+            "View name is too long",
+            &[
+                "Keep view names under 100 characters",
+                "Use shorter, descriptive names",
+            ],
+        );
+        return Err(anyhow::anyhow!("Invalid view name"));
+    }
+
+    ui::print_info(&format!("📦 Creating view: {}", name));
+
+    // Load configuration with helpful error
+    let config = match config::load_viewsets_config() {
+        Ok(config) => config,
+        Err(_) => {
+            ui::show_error_with_help(
+                "No viewsets configuration found",
+                &[
+                    "Run 'viewyard onboard' to set up your viewsets",
+                    "This will guide you through the initial setup process",
+                ],
+            );
+            return Err(anyhow::anyhow!("Configuration not found"));
+        }
+    };
+
+    if config.viewsets.is_empty() {
+        ui::show_error_with_help(
+            "No viewsets configured",
+            &[
+                "Run 'viewyard onboard' to create your first viewset",
+                "This will help you add repositories and set up your workspace",
+            ],
+        );
+        return Err(anyhow::anyhow!("No viewsets configured"));
+    }
+
+    // Determine viewset with better error messages
     let viewset_name = match viewset {
         Some(name) => {
             if !config.viewsets.contains_key(name) {
-                anyhow::bail!("Viewset '{}' not found in configuration", name);
+                ui::show_error_with_help(
+                    &format!("Viewset '{}' not found", name),
+                    &[
+                        "Available viewsets:",
+                        &config
+                            .viewsets
+                            .keys()
+                            .map(|k| format!("  • {}", k))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                        "",
+                        "Use: viewyard view create <name> --viewset <viewset-name>",
+                    ],
+                );
+                return Err(anyhow::anyhow!("Viewset not found"));
             }
             name.to_string()
         }
         None => {
             // Try to auto-detect from current directory
-            if let Some(detected) = config::detect_current_viewset() {
-                ui::print_info(&format!("Auto-detected viewset: {}", detected));
-                detected
+            if let Some(detected) = config::detect_viewset_for_creation() {
+                if config.viewsets.contains_key(&detected) {
+                    ui::print_info(&format!("🎯 Auto-detected viewset: {}", detected));
+                    detected
+                } else {
+                    ui::print_warning(&format!(
+                        "⚠️  Detected viewset '{}' but it's not configured",
+                        detected
+                    ));
+                    // Use first viewset as fallback
+                    let default_viewset = config
+                        .get_first_viewset_name()
+                        .ok_or_else(|| anyhow::anyhow!("No viewsets configured"))?;
+                    ui::print_info(&format!("📂 Using default viewset: {}", default_viewset));
+                    default_viewset
+                }
             } else {
                 // Use first viewset as default
-                config.get_first_viewset_name()
-                    .ok_or_else(|| anyhow::anyhow!("No viewsets configured. Run 'viewyard onboard' first."))?
+                let default_viewset = config
+                    .get_first_viewset_name()
+                    .ok_or_else(|| anyhow::anyhow!("No viewsets configured"))?;
+                ui::print_info(&format!("📂 Using default viewset: {}", default_viewset));
+                default_viewset
             }
         }
     };
@@ -79,37 +175,134 @@ fn create_view(name: &str, viewset: Option<&str>) -> Result<()> {
     // Get viewset configuration
     let viewset_config = config.viewsets.get(&viewset_name).unwrap();
 
+    if viewset_config.repos.is_empty() {
+        ui::show_warning_with_context(
+            &format!("Viewset '{}' has no repositories configured", viewset_name),
+            "Add repositories by running 'viewyard onboard' or editing ~/.config/viewyard/viewsets.yaml"
+        );
+        if !ui::confirm("Create empty view anyway?")? {
+            return Ok(());
+        }
+    }
+
     // Check if view already exists
     let view_path = config::get_view_path(&viewset_name, name)?;
     if view_path.exists() {
-        anyhow::bail!("View '{}' already exists at {}", name, view_path.display());
+        ui::show_error_with_help(
+            &format!("View '{}' already exists", name),
+            &[
+                &format!("Location: {}", view_path.display()),
+                "Choose a different name or delete the existing view first",
+                &format!("Delete with: viewyard view delete {}", name),
+            ],
+        );
+        return Err(anyhow::anyhow!("View already exists"));
     }
 
-    // Interactive repository selection
-    ui::print_info("Select repositories for this view:");
-    let repo_names: Vec<String> = viewset_config.repos.iter().map(|r| r.name.clone()).collect();
+    // Repository selection - either from template or interactive
+    let selected_repos: Vec<&crate::models::Repository> = if let Some(template_name) = template {
+        // Use template for repository selection
+        use crate::models::ViewTemplate;
 
-    // For testing, let's just select the first repository if the view name starts with "test-"
-    let selected_indices = if name.starts_with("test-") {
-        ui::print_info("Test mode: automatically selecting first repository");
-        vec![0]
+        if !ViewTemplate::template_exists(template_name) {
+            let available = ViewTemplate::list_available();
+            let available_str = if available.is_empty() {
+                "none".to_string()
+            } else {
+                available.join(", ")
+            };
+            ui::show_error_with_help(
+                &format!("Template '{}' not found", template_name),
+                &[
+                    &format!("Available templates: {}", available_str),
+                    "Create templates in ~/.config/viewyard/templates/",
+                    "Example: ~/.config/viewyard/templates/auth.yaml",
+                ],
+            );
+            return Err(anyhow::anyhow!("Template not found"));
+        }
+
+        let template = ViewTemplate::load(template_name)
+            .map_err(|e| anyhow::anyhow!("Failed to load template '{}': {}", template_name, e))?;
+
+        ui::print_info(&format!(
+            "Using template '{}' with {} repositories",
+            template_name,
+            template.repos.len()
+        ));
+
+        // Find repositories from template in the viewset
+        let mut selected = Vec::new();
+        let mut missing = Vec::new();
+
+        for repo_name in &template.repos {
+            if let Some(repo) = viewset_config.repos.iter().find(|r| r.name == *repo_name) {
+                selected.push(repo);
+            } else {
+                missing.push(repo_name.clone());
+            }
+        }
+
+        if !missing.is_empty() {
+            ui::show_error_with_help(
+                &format!(
+                    "Template references repositories not in viewset '{}'",
+                    viewset_name
+                ),
+                &[
+                    &format!("Missing repositories: {}", missing.join(", ")),
+                    &format!(
+                        "Available in viewset: {}",
+                        viewset_config
+                            .repos
+                            .iter()
+                            .map(|r| r.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    "Update the template or add missing repositories to the viewset",
+                ],
+            );
+            return Err(anyhow::anyhow!(
+                "Template repositories not found in viewset"
+            ));
+        }
+
+        selected
     } else {
-        ui::select_from_list(&repo_names, "Available repositories:", true)?
+        // Interactive repository selection
+        ui::print_info("Select repositories for this view:");
+        let repo_names: Vec<String> = viewset_config
+            .repos
+            .iter()
+            .map(|r| r.name.clone())
+            .collect();
+
+        // For testing, let's just select the first repository if the view name starts with "test-"
+        let selected_indices = if name.starts_with("test-") {
+            ui::print_info("Test mode: automatically selecting first repository");
+            vec![0]
+        } else {
+            ui::select_from_list(&repo_names, "Available repositories:", true)?
+        };
+
+        if selected_indices.is_empty() {
+            anyhow::bail!("No repositories selected. View creation cancelled.");
+        }
+
+        selected_indices
+            .iter()
+            .map(|&i| &viewset_config.repos[i])
+            .collect()
     };
-
-    if selected_indices.is_empty() {
-        anyhow::bail!("No repositories selected. View creation cancelled.");
-    }
-
-    let selected_repos: Vec<&crate::models::Repository> = selected_indices
-        .iter()
-        .map(|&i| &viewset_config.repos[i])
-        .collect();
 
     // Create view directory structure
     create_view_structure(name, &viewset_name, &selected_repos)?;
 
-    ui::print_success(&format!("View '{}' created successfully in viewset '{}'", name, viewset_name));
+    ui::print_success(&format!(
+        "View '{}' created successfully in viewset '{}'",
+        name, viewset_name
+    ));
     ui::print_info(&format!("Navigate to: cd {}", view_path.display()));
     ui::print_info("Run 'viewyard workspace status' to see repository status");
 
@@ -149,7 +342,10 @@ fn delete_view(name: &str, force: bool) -> Result<()> {
     };
 
     if !force {
-        ui::print_warning(&format!("This will permanently delete view '{}' from viewset '{}'", name, viewset_name));
+        ui::print_warning(&format!(
+            "This will permanently delete view '{}' from viewset '{}'",
+            name, viewset_name
+        ));
         ui::print_warning(&format!("Path: {}", view_path.display()));
         let confirmed = ui::confirm("Are you sure you want to delete this view?")?;
         if !confirmed {
@@ -161,7 +357,10 @@ fn delete_view(name: &str, force: bool) -> Result<()> {
     // Remove the view directory
     fs::remove_dir_all(&view_path)?;
 
-    ui::print_success(&format!("View '{}' deleted from viewset '{}'", name, viewset_name));
+    ui::print_success(&format!(
+        "View '{}' deleted from viewset '{}'",
+        name, viewset_name
+    ));
     Ok(())
 }
 
@@ -186,7 +385,9 @@ fn list_views(viewset: Option<&str>) -> Result<()> {
             }
 
             if total_views == 0 {
-                ui::print_warning("No views found. Create your first view with: viewyard view create <name>");
+                ui::print_warning(
+                    "No views found. Create your first view with: viewyard view create <name>",
+                );
             }
         }
     }
@@ -227,42 +428,41 @@ fn list_views_for_viewset(viewset_name: &str) -> Result<usize> {
 
 fn validate_config() -> Result<()> {
     ui::print_info("Validating viewsets configuration...");
-    
+
     if !config::config_exists() {
         anyhow::bail!("Configuration not found. Run 'viewyard onboard' to set up.");
     }
-    
+
     let config = config::load_viewsets_config()?;
-    
+
     if config.viewsets.is_empty() {
         anyhow::bail!("No viewsets configured");
     }
-    
+
     for (name, viewset) in &config.viewsets {
         ui::print_info(&format!("Validating viewset '{}':", name));
-        
+
         if viewset.repos.is_empty() {
             ui::print_warning(&format!("  Viewset '{}' has no repositories", name));
             continue;
         }
-        
+
         for repo in &viewset.repos {
             ui::print_info(&format!("  ✓ {}: {}", repo.name, repo.url));
         }
     }
-    
+
     ui::print_success("Configuration is valid");
     Ok(())
 }
 
-fn setup_justfiles() -> Result<()> {
-    ui::print_info("Setting up justfiles in viewset directories...");
-    // TODO: Implement justfile setup
-    ui::print_success("Justfiles set up successfully");
-    Ok(())
-}
 
-fn create_view_structure(view_name: &str, viewset_name: &str, selected_repos: &[&Repository]) -> Result<()> {
+
+fn create_view_structure(
+    view_name: &str,
+    viewset_name: &str,
+    selected_repos: &[&Repository],
+) -> Result<()> {
     let view_path = config::get_view_path(viewset_name, view_name)?;
 
     // Create view directory
@@ -275,12 +475,12 @@ fn create_view_structure(view_name: &str, viewset_name: &str, selected_repos: &[
     let gitignore_content = "# Viewyard view repository\n.view-repos\n.viewyard-context\n";
     fs::write(view_path.join(".gitignore"), gitignore_content)?;
 
-    // Create justfile for the view
-    create_view_justfile(&view_path, selected_repos)?;
-
     // Initial commit
     git::add_all(&view_path)?;
-    git::commit(&format!("Initial commit for view {}", view_name), &view_path)?;
+    git::commit(
+        &format!("Initial commit for view {}", view_name),
+        &view_path,
+    )?;
 
     // Create and checkout view branch
     git::create_branch(view_name, &view_path)?;
@@ -303,39 +503,13 @@ fn create_view_structure(view_name: &str, viewset_name: &str, selected_repos: &[
     Ok(())
 }
 
-fn create_view_justfile(view_path: &Path, selected_repos: &[&Repository]) -> Result<()> {
-    let mut justfile_content = String::from("# View-specific commands\n\n");
 
-    // Add status command
-    justfile_content.push_str("# Show status of all repos in this view\n");
-    justfile_content.push_str("status:\n");
-    justfile_content.push_str("    viewyard workspace status\n\n");
 
-    // Add rebase command
-    justfile_content.push_str("# Rebase all repos against origin/master\n");
-    justfile_content.push_str("rebase:\n");
-    justfile_content.push_str("    viewyard workspace rebase\n\n");
-
-    // Add build command
-    justfile_content.push_str("# Build repos with changes\n");
-    justfile_content.push_str("build:\n");
-    justfile_content.push_str("    viewyard workspace build\n\n");
-
-    // Add commit-all command
-    justfile_content.push_str("# Commit to all dirty repos\n");
-    justfile_content.push_str("commit-all message:\n");
-    justfile_content.push_str("    viewyard workspace commit-all \"{{message}}\"\n\n");
-
-    // Add push-all command
-    justfile_content.push_str("# Push repos with commits ahead\n");
-    justfile_content.push_str("push-all:\n");
-    justfile_content.push_str("    viewyard workspace push-all\n\n");
-
-    fs::write(view_path.join("justfile"), justfile_content)?;
-    Ok(())
-}
-
-fn create_view_context(view_path: &Path, view_name: &str, selected_repos: &[&Repository]) -> Result<()> {
+fn create_view_context(
+    view_path: &Path,
+    view_name: &str,
+    selected_repos: &[&Repository],
+) -> Result<()> {
     use std::time::SystemTime;
 
     let repo_names: Vec<String> = selected_repos.iter().map(|r| r.name.clone()).collect();
@@ -356,7 +530,10 @@ fn create_view_context(view_path: &Path, view_name: &str, selected_repos: &[&Rep
         map.insert(
             serde_yaml::Value::String("active_repos".to_string()),
             serde_yaml::Value::Sequence(
-                repo_names.into_iter().map(serde_yaml::Value::String).collect()
+                repo_names
+                    .into_iter()
+                    .map(serde_yaml::Value::String)
+                    .collect(),
             ),
         );
         map.insert(
