@@ -292,6 +292,10 @@ fn create_view_structure(view_name: &str, viewset_name: &str, selected_repos: &[
         git::add_submodule(&repo.url, &repo.name, &view_path)?;
     }
 
+    // Initialize and update submodules
+    ui::print_info("Initializing submodules...");
+    git::update_submodules(&view_path)?;
+
     // Create view context file
     create_view_context(&view_path, view_name, selected_repos)?;
 
