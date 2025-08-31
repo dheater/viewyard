@@ -146,69 +146,9 @@
         }
       }
     },
-    "zig@latest": {
-      "last_modified": "2025-07-28T17:09:23Z",
-      "resolved": "github:NixOS/nixpkgs/648f70160c03151bc2121d179291337ad6bc564b#zig",
-      "source": "devbox-search",
-      "version": "0.14.1",
-      "systems": {
-        "aarch64-darwin": {
-          "outputs": [
-            {
-              "name": "out",
-              "path": "/nix/store/qczsm7366g0hp3vgr4yysgwn097w0dhb-zig-0.14.1",
-              "default": true
-            },
-            {
-              "name": "doc",
-              "path": "/nix/store/07vky7yld7z9p5h6hxs38zqg7blgmx8r-zig-0.14.1-doc"
-            }
-          ],
-          "store_path": "/nix/store/qczsm7366g0hp3vgr4yysgwn097w0dhb-zig-0.14.1"
-        },
-        "aarch64-linux": {
-          "outputs": [
-            {
-              "name": "out",
-              "path": "/nix/store/368v1ldd6sr8xbg02a7nbpr9ivk7x676-zig-0.14.1",
-              "default": true
-            },
-            {
-              "name": "doc",
-              "path": "/nix/store/qh0xdixih3ml5mprpq069lc9d0yrndm4-zig-0.14.1-doc"
-            }
-          ],
-          "store_path": "/nix/store/368v1ldd6sr8xbg02a7nbpr9ivk7x676-zig-0.14.1"
-        },
-        "x86_64-darwin": {
-          "outputs": [
-            {
-              "name": "out",
-              "path": "/nix/store/ybksis65ciqp8qhsvkdsb2l7zng7gqga-zig-0.14.1",
-              "default": true
-            },
-            {
-              "name": "doc",
-              "path": "/nix/store/85fm5ybv80pk3lyhr4bkwln3zp2sp2l1-zig-0.14.1-doc"
-            }
-          ],
-          "store_path": "/nix/store/ybksis65ciqp8qhsvkdsb2l7zng7gqga-zig-0.14.1"
-        },
-        "x86_64-linux": {
-          "outputs": [
-            {
-              "name": "out",
-              "path": "/nix/store/bp12055dys65yncly4khqban6lvaga9g-zig-0.14.1",
-              "default": true
-            },
-            {
-              "name": "doc",
-              "path": "/nix/store/s9qf64jgq2j938zplrdnqnz4pnr1ns6f-zig-0.14.1-doc"
-            }
-          ],
-          "store_path": "/nix/store/bp12055dys65yncly4khqban6lvaga9g-zig-0.14.1"
-        }
-      }
+    "python3Packages.pyyaml": {
+      "resolved": "github:NixOS/nixpkgs/8679b16e11becd487b45d568358ddf9d5640d860#python3Packages.pyyaml",
+      "source": "nixpkg"
     }
   }
 }

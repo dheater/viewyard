@@ -2,7 +2,7 @@
 
 The refreshingly unoptimized alternative to monorepos.
 
-A clean, simple workspace for coordinated development across multiple repositories using **task-based views**.
+A clean, simple workspace for coordinated development across multiple repositories using **task-based views** and **viewsets**.
 
 ## 🚀 Quick Start
 
@@ -11,15 +11,16 @@ A clean, simple workspace for coordinated development across multiple repositori
 just view create CLIENTS-469
 
 # Navigate to your isolated workspace
-cd views/CLIENTS-469
+cd src-<viewset>/views/CLIENTS-469
 
 # Start working
 just status
 just build
 ```
 
-## 🎯 Core Concept: Task-Based Views
+## 🎯 Core Concepts
 
+### Task-Based Views
 Instead of complex Git workflows, this workspace uses **isolated task views**:
 
 - **One view per task** - complete isolation, no interference
@@ -27,17 +28,44 @@ Instead of complex Git workflows, this workspace uses **isolated task views**:
 - **Clean lifecycle** - create → work → delete when done
 - **Team-friendly** - simple commands, clear instructions
 
+### Viewsets
+Organize your repositories by context (work, personal, client, etc.):
+
+- **Separate contexts** - work repos vs personal repos
+- **Clean git config** - different credentials per viewset
+- **Curated repo lists** - only the repos you actually use
+- **Flexible organization** - organize however makes sense for you
+
 ## 📋 Main Commands
 
 ### View Management
 ```bash
-just view create <task-name>        # Interactive repo selection
-just view create <task> repo1 repo2 # Specify repos directly
-just view list                      # Show all views
-just view delete <task> force       # Clean up completed work
+just view create <task-name>                    # Interactive repo selection (default viewset)
+just view create --viewset <name> <task-name>  # Use specific viewset
+just view list                                  # Show all views across viewsets
+just view delete <task> force                   # Clean up completed work
 ```
 
-### Within a View (cd views/<task>/)
+### Viewset Configuration
+```bash
+# Configuration file: ~/.config/viewyard/viewsets.yaml
+# Example:
+viewsets:
+  work:
+    repos:
+      - name: api-service
+        url: git@github.com:company/api-service.git
+        build: make
+        test: make test
+  personal:
+    repos:
+      - name: my-project
+        url: git@github.com:me/my-project.git
+        build: npm run build
+        test: npm test
+```
+
+### Within a View (cd ~/src/<viewset>/views/<task>/)
 ```bash
 just status                         # Status of all repos in view
 just rebase                         # Rebase against origin/master
@@ -48,24 +76,46 @@ just push-all                       # Push repos with commits ahead
 
 ## 🏗️ How It Works
 
-### 1. Create a Task View
+### 1. Configure Your Viewsets
 ```bash
-just view create CLIENTS-469
-# Shows numbered list of available repos
-# Select: 1 2 (for librssconnect + universal-connection-manager)
-# Creates isolated workspace at views/CLIENTS-469/
+# Create ~/.config/viewyard/viewsets.yaml
+viewsets:
+  work:
+    repos:
+      - name: api-service
+        url: git@github.com:company/api-service.git
+        build: make
+        test: make test
+  personal:
+    repos:
+      - name: my-project
+        url: git@github.com:me/my-project.git
+        build: npm run build
+        test: npm test
 ```
 
-### 2. Work in Complete Isolation
+### 2. Create a Task View
 ```bash
-cd views/CLIENTS-469
+just view create CLIENTS-469
+# Uses default viewset, shows numbered list of available repos
+# Select: 1 2 (for api-service + another-service)
+# Creates isolated workspace at ~/src/work/views/CLIENTS-469/
+
+# Or specify a viewset:
+just view create --viewset personal MY-FEATURE
+# Creates workspace at ~/src/personal/views/MY-FEATURE/
+```
+
+### 3. Work in Complete Isolation
+```bash
+cd ~/src/work/views/CLIENTS-469
 # You now have:
-# - librssconnect/           (on CLIENTS-469 branch)
-# - universal-connection-manager/ (on CLIENTS-469 branch)
+# - api-service/             (on CLIENTS-469 branch)
+# - another-service/         (on CLIENTS-469 branch)
 # - justfile                 (view-specific commands)
 ```
 
-### 3. Use Smart Commands
+### 4. Use Smart Commands
 ```bash
 just build                  # Only builds repos with uncommitted changes
 just commit-all "Fix bug"   # Commits to all dirty repos
@@ -130,64 +180,131 @@ Example repositories:
 
 ## 🚀 Getting Started
 
+### Quick Onboarding (New Users)
+
+**Step 1: Clone and run onboarding**
+```bash
+git clone https://github.com/your-org/viewyard.git ~/src/viewyard
+cd ~/src/viewyard
+
+# Install PyYAML if needed
+pip install PyYAML
+
+# Run onboarding
+just onboard
+```
+
+The onboarding script will:
+- ✅ Check prerequisites (git, just, python, PyYAML)
+- ✅ Set up git configuration for work/personal contexts
+- ✅ Create starter viewsets configuration
+- ✅ Validate everything is working
+
+**Step 2: Customize your repositories**
+```bash
+# Edit the generated config with your actual repos
+vim ~/.config/viewyard/viewsets.yaml
+```
+
+**Step 3: Create your first view**
+```bash
+just view create my-first-task
+# Select repos interactively, then:
+cd src-work/views/my-first-task
+just status
+```
+
+### Manual Setup
+
 ### Prerequisites
 - Git with SSH access to your repositories
 - Just (command runner): `brew install just`
-- Python 3 (for automation scripts)
+- Python 3 with PyYAML: `pip install PyYAML`
 
-### Setup
+### Git Configuration for Multiple Contexts
+Configure git to use different credentials for different viewsets:
+
+```bash
+# ~/.gitconfig
+[includeIf "gitdir:~/src/src-work/"]
+    path = ~/.gitconfig-work
+[includeIf "gitdir:~/src/src-personal/"]
+    path = ~/.gitconfig-personal
+
+# ~/.gitconfig-work
+[user]
+    name = "Your Work Name"
+    email = "you@company.com"
+
+# ~/.gitconfig-personal
+[user]
+    name = "Your Personal Name"
+    email = "you@personal.com"
+```
+
+### Manual Setup
 ```bash
 # Clone the coordination workspace
-git clone git@github.com:daniel-heater-imprivata/viewyard.git ~/src
-cd ~/src
+git clone https://github.com/your-org/viewyard.git ~/src/viewyard
+cd ~/src/viewyard
+
+# Configure your viewsets
+mkdir -p ~/.config/viewyard
+cp templates/viewsets/starter.yaml ~/.config/viewyard/viewsets.yaml
+# Edit ~/.config/viewyard/viewsets.yaml with your repositories
+
+# Set up git config (see Git Configuration section above)
+
+# Validate setup
+just view validate
 
 # Create your first task view
 just view create my-first-task
 
 # Navigate and start working
-cd views/my-first-task
+cd ~/src/<viewset>/views/my-first-task
 just status
 ```
 
 ## 💡 Examples
 
-### Feature Development
+### Work Feature Development
 ```bash
-# Create view for magnet links feature
+# Create view for work feature (uses default viewset)
 just view create CLIENTS-469
-# Select: 1 2 (librssconnect + universal-connection-manager)
+# Select: 1 2 (api-service + auth-service)
 
-cd views/CLIENTS-469
+cd src-work/views/CLIENTS-469
 just status                     # Check current state
 # Make your changes...
 just build                      # Build changed repos
-just commit-all "Implement magnet links"
+just commit-all "Implement new feature"
 just push-all                   # Push to GitHub
 ```
 
-### Security Audit
+### Personal Project
 ```bash
-# Create view for security work
-just view create security-audit audit connect
-# Directly specify repos
+# Create view for personal project
+just view create --viewset personal my-feature
+# Select repos from personal viewset
 
-cd views/security-audit
-just rebase                     # Update against latest master
-# Perform audit...
-just commit-all "Security fixes"
-just push-all
+cd src-personal/views/my-feature
+just status                     # Check current state
+# Make your changes...
+just build                      # Build changed repos
+just commit-all "Add cool feature"
+just push-all                   # Push to GitHub
 ```
 
-### Multi-Repo Bug Fix
+### Multi-Context Development
 ```bash
-# Create view for cross-repo bug fix
-just view create BUG-123
-# Interactive selection of affected repos
+# Work on both work and personal projects
+just view create --viewset work WORK-123
+just view create --viewset personal SIDE-PROJECT
 
-cd views/BUG-123
-# Fix bug across multiple repos...
-just commit-all "Fix authentication bug"
-just push-all                   # Coordinated push
+# Switch between contexts easily
+cd src-work/views/WORK-123      # Work context
+cd src-personal/views/SIDE-PROJECT  # Personal context
 ```
 
 ## 🛠️ Advanced Usage
@@ -216,6 +333,18 @@ just view create feature-b universal-connection-manager
 
 ## 🔍 Troubleshooting
 
+### Setup Issues
+```bash
+# Validate your setup
+just view validate
+
+# Re-run onboarding if needed
+python3 scripts/onboard.py
+
+# Check viewsets config
+cat ~/.config/viewyard/viewsets.yaml
+```
+
 ### View Creation Issues
 ```bash
 # If view already exists
@@ -224,6 +353,9 @@ just view create task-name
 
 # Check what views exist
 just view list
+
+# If viewset not found
+just view create --viewset work task-name
 ```
 
 ### Repository Issues
@@ -232,16 +364,21 @@ just view list
 # Check SSH access to GitHub
 ssh -T git@github.com
 
+# Check if repo exists in viewset
+just view validate
+
 # If branches don't exist
 # They'll be created automatically
 ```
 
-### Command Issues
+### Git Configuration Issues
 ```bash
-# If nushell commands fail
-# Make sure you're in the right directory
-cd views/your-task-name
-just status
+# Check git config is working
+cd src-work/views/some-view
+git config user.email  # Should show work email
+
+cd src-personal/views/some-view
+git config user.email  # Should show personal email
 ```
 
 ## 🤝 Team Adoption

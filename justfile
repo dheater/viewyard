@@ -22,6 +22,10 @@ default:
 view *args:
     python3 scripts/view-manager.py {{args}}
 
+# Onboard new users - interactive setup
+onboard:
+    python3 scripts/onboard.py
+
 # === View Coordination Commands (run from within a view directory) ===
 
 # Show status of all repos in current view
