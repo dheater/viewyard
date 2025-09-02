@@ -45,7 +45,7 @@ viewyard view create <branch-name>      # Create synchronized branch workspace
 viewyard status                         # Status of all repos (validates branch sync)
 viewyard commit-all "message"           # Commit to all dirty repos
 viewyard push-all                       # Push repos with commits ahead
-viewyard rebase                         # Rebase all repos against origin/main
+viewyard rebase                         # Rebase all repos against their default branch
 ```
 
 ## 🏗️ How It Works

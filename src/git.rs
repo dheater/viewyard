@@ -173,3 +173,35 @@ pub fn merge_fast_forward(branch_name: &str, cwd: &Path) -> Result<()> {
     run_git_command(&["merge", "--ff-only", branch_name], Some(cwd))?;
     Ok(())
 }
+
+/// Get the default branch for the remote origin
+pub fn get_default_branch(cwd: &Path) -> Result<String> {
+    // Method 1: Try to get the symbolic ref for origin/HEAD
+    if let Ok(output) =
+        run_git_command_string(&["symbolic-ref", "refs/remotes/origin/HEAD"], Some(cwd))
+    {
+        // Output format: "refs/remotes/origin/main" -> extract "main"
+        if let Some(branch_name) = output.strip_prefix("refs/remotes/origin/") {
+            return Ok(format!("origin/{branch_name}"));
+        }
+    }
+
+    // Method 2: Try to get default branch from remote show origin
+    if let Ok(output) = run_git_command_string(&["remote", "show", "origin"], Some(cwd)) {
+        for line in output.lines() {
+            if let Some(branch) = line.strip_prefix("  HEAD branch: ") {
+                return Ok(format!("origin/{}", branch.trim()));
+            }
+        }
+    }
+
+    // Method 3: Fall back to common defaults, checking which ones exist
+    let common_defaults = ["origin/main", "origin/master", "origin/develop"];
+    for &default in &common_defaults {
+        if branch_exists(default, cwd) {
+            return Ok(default.to_string());
+        }
+    }
+
+    anyhow::bail!("Could not determine default branch for repository")
+}

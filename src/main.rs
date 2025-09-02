@@ -96,7 +96,7 @@ enum Commands {
     // Workspace commands (work from within a view directory)
     /// Show status of all repos in current view
     Status,
-    /// Rebase repos against origin/master
+    /// Rebase repos against their default branch
     Rebase,
     /// Commit to all dirty repos (only repos with changes)
     #[command(name = "commit-all")]

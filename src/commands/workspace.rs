@@ -64,7 +64,7 @@ fn load_and_validate_repos(repos_file: &Path) -> Result<Vec<models::Repository>>
 pub enum WorkspaceCommand {
     /// Show status of all repos in current view
     Status,
-    /// Rebase repos against origin/master
+    /// Rebase repos against their default branch
     Rebase,
     /// Commit to all dirty repos (only repos with changes)
     #[command(name = "commit-all")]
@@ -362,20 +362,23 @@ fn rebase_repo(repo_path: &Path) -> Result<()> {
     // Get the current branch name
     let current_branch = git::get_current_branch(repo_path)?;
 
-    // Rebase against origin/main or origin/master
-    // Try main first, then master as fallback
-    let rebase_target = if git::branch_exists("origin/main", repo_path) {
-        "origin/main"
-    } else if git::branch_exists("origin/master", repo_path) {
-        "origin/master"
-    } else {
-        anyhow::bail!("Neither origin/main nor origin/master branch found");
-    };
+    // Dynamically detect the default branch for this repository
+    let rebase_target = git::get_default_branch(repo_path)
+        .with_context(|| "Failed to detect default branch for repository")?;
 
-    // Only rebase if we're not already on the target branch
-    if current_branch != "main" && current_branch != "master" {
+    // Extract the branch name from the rebase target (e.g., "origin/main" -> "main")
+    let target_branch_name = rebase_target
+        .strip_prefix("origin/")
+        .unwrap_or(&rebase_target);
+
+    // Check if we're already on the target branch
+    if current_branch == target_branch_name {
+        // If we're on the default branch, just fast-forward merge
+        git::merge_fast_forward(&rebase_target, repo_path)?;
+        Ok(())
+    } else {
         // Attempt rebase with conflict detection
-        match git::rebase(rebase_target, repo_path) {
+        match git::rebase(&rebase_target, repo_path) {
             Ok(()) => Ok(()),
             Err(e) => {
                 // Check if we're in a rebase state (conflict occurred)
@@ -402,10 +405,6 @@ fn rebase_repo(repo_path: &Path) -> Result<()> {
                 Err(e).context("Rebase failed")
             }
         }
-    } else {
-        // If we're on main/master, just fast-forward merge
-        git::merge_fast_forward(rebase_target, repo_path)?;
-        Ok(())
     }
 }
 
