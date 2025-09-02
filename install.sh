@@ -25,7 +25,7 @@ TEMP_DIR=$(mktemp -d)
 cd "$TEMP_DIR"
 
 echo "📦 Cloning viewyard repository..."
-git clone https://github.com/daniel-heater-imprivata/viewyard.git
+git clone https://github.com/dheater/viewyard.git
 cd viewyard
 
 echo "🔨 Building release binary..."
@@ -47,7 +47,7 @@ echo "   viewyard view validate             # Validate your config"
 echo "   viewyard view create my-task       # Create a new view"
 echo "   viewyard status                    # Show repository status"
 echo ""
-echo "📚 Documentation: https://github.com/daniel-heater-imprivata/viewyard"
+echo "📚 Documentation: https://github.com/dheater/viewyard"
 echo ""
 echo "🐛 Found a bug? The new testing approach in v0.2.0 already found 3 critical bugs!"
-echo "   Please report issues at: https://github.com/daniel-heater-imprivata/viewyard/issues"
+echo "   Please report issues at: https://github.com/dheater/viewyard/issues"

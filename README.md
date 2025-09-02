@@ -2,397 +2,179 @@
 
 Monorepo experience, multi-repo reality.
 
-A clean, simple workspace for coordinated development across multiple repositories using **task-based views** and **viewsets**.
+Viewyard is a multi-repository workspace management tool that creates synchronized development environments across multiple Git repositories. Instead of forcing everything into a monorepo, Viewyard lets you work with multiple repositories as if they were a single codebase.
 
-## 🎯 Benefits for Individual Developers
-
-### ✅ **Simplified Workflow**
-- **One command setup**: `viewyard view create my-task`
-- **Interactive guidance** through repo selection
-- **Clear workspace structure** - know exactly where everything is
-- **Familiar Git workflows** within each repo
-
-### ✅ **Better Organization**
-- **Task isolation** - no interference between different work
-- **Context separation** - work vs personal projects
-- **Clean lifecycle** - create when starting, delete when done
-- **Coordinated operations** - status, commit, push across repos
-
-### ✅ **Reduced Complexity**
-- **No complex Git workflows** - simple branching per task
-- **No monorepo overhead** - keep repos independent
-- **No workspace pollution** - each task gets fresh environment
-- **No branch confusion** - always on the right branch for the task
-
-## ⚠️ Important Disclaimers
-
-### Security & Operations
-- **Git Credentials**: Viewyard uses your existing git credentials to clone and manage repositories
-- **Filesystem Operations**: This tool creates directories, clones repositories, and manages git branches
-- **AI-Assisted Development**: This tool was developed with significant AI assistance. You decide your level of comfort with that.
-
-### Scope
-- **Repository Coordination Only**: Viewyard manages git repository views and coordination
-- **Does NOT Replace Build Systems**: You still use your existing build tools (npm, cargo, make, etc.)
-- **Does NOT Replace Testing**: You still use your existing test frameworks and CI/CD pipelines
-
-## 🚀 Getting Started
-
-### Prerequisites
-- Git with SSH access to your repositories
-- Github commandline for improved experience
-
-### Quick Setup Example
-Let's say you have two repositories for a web project:
+## 🚀 Quick Start
 
 ```bash
-# 3. Configure your repositories
-viewyard onboard
-# Interactive setup with:
-# • Repository selection prompts
-# • Automatic repository discovery from GitHub/Git
-# • Configuration file creation
-# • Setup validation
-# Note: You can manually edit ~/.config/viewyard/viewsets.yaml later if needed
+# 1. Install and authenticate
+gh auth login                           # One-time GitHub CLI setup
 
-# 4. Create your first task view
-viewyard view create add-user-auth
-# Interactive prompt: Select repos (1 2 for both frontend and backend)
+# 2. Create a viewset (project workspace)
+viewyard viewset create my-project      # Interactive repository selection
 
-# 5. Navigate to your workspace
-cd ~/src/default/views/add-user-auth
+# 3. Create a view (synchronized branch workspace)  
+cd my-project
+viewyard view create feature-123        # Creates branch across all repos
 
-# 6. You now have isolated copies on the 'add-user-auth' branch:
-# - my-frontend/    (on add-user-auth branch)
-# - my-backend/     (on add-user-auth branch)
+# 4. Work normally - all repos are synchronized on the same branch
+cd feature-123
+# Edit files in any repository...
 
-# 7. Work normally with your existing tools
-cd my-frontend
-npm install && npm run dev    # Use your normal build tools
-
-cd ../my-backend
-cargo test                    # Use your normal test tools
-
-# 8. Coordinate across repos when ready
-cd ..  # Back to view root
-viewyard status               # See status of both repos
-viewyard commit-all "Add user authentication"
-viewyard push-all            # Push both repos
+# 5. Coordinate across repositories
+viewyard status                         # Status of all repos
+viewyard commit-all "Add feature"       # Commit to all dirty repos  
+viewyard push-all                       # Push all repos with commits
 ```
 
-### What Just Happened?
-- **Viewyard created isolated workspace** - separate from your main development
-- **Each repo is on a task-specific branch** - no branch confusion
-- **You use your existing tools** - npm, cargo, make, whatever you normally use
-- **Viewyard coordinates git operations** - status, commits, pushes across repos
-- **Clean separation** - when done, delete the view and you're back to clean state
+## 📋 Core Commands
 
-## 🎯 Core Concepts
-
-### Task-Based Views
-Instead of complex Git workflows, this workspace uses **isolated task views** - workspaces containing copies of selected repositories, all automatically placed on the same task-specific branch. Repositories are duplicated across multiple views, but you don't need to think about branches since each view puts you on the right branch for that task. This allows you to quickly switch between or compare different pieces of work without branch confusion.
-
-- **One view per task** - complete isolation, no interference
-- **Interactive setup** - choose only the repos you need
-- **Clean lifecycle** - create → work → delete when done
-- **Simple commands** - straightforward CLI interface
-
-### Viewsets
-Organize your repositories by context (work, personal, client, etc.) to create a dynamic, personal monorepo-like experience. Unlike a true monorepo, repositories remain independent, but viewsets give you coordinated operations across them (status, commit, push, rebase) as if they were a single project.
-
-- **Separate contexts** - work repos vs personal repos
-- **Clean git config** - different credentials per viewset
-- **Curated repo lists** - only the repos you actually use
-- **Flexible organization** - organize however makes sense for you
-
-## 📋 Main Commands
-
-### View Management
+### Viewset Management (project-level)
 ```bash
-viewyard view create <task-name>                    # Interactive repo selection (default viewset)
-viewyard view create --viewset <name> <task-name>  # Use specific viewset
-viewyard view list                                  # Show all views across viewsets
-# To clean up: manually delete view directory when done
+viewyard viewset create <name>          # Create new project workspace
+viewyard viewset create <name> --account <github-user>  # From specific account
 ```
 
-### Viewset Configuration
+### View Management (branch-level)
 ```bash
-# Configuration file: ~/.config/viewyard/viewsets.yaml
-# Example:
-viewsets:
-  work:
-    repos:
-      - name: web-frontend
-        url: git@github.com:company/web-frontend.git
-      - name: api-backend
-        url: git@github.com:company/api-backend.git
-  personal:
-    repos:
-      - name: my-cli-tool
-        url: git@github.com:me/my-cli-tool.git
+viewyard view create <branch-name>      # Create synchronized branch workspace
 ```
 
-### Within a View (cd ~/src/<viewset>/views/<task>/)
+### Workspace Commands (run from within a view directory)
 ```bash
-viewyard status                     # Status of all repos in view
-viewyard commit-all "message"       # Commit to all dirty repos
-viewyard push-all                   # Push repos with commits ahead
-viewyard rebase                     # Rebase all repos against origin/main
+viewyard status                         # Status of all repos (validates branch sync)
+viewyard commit-all "message"           # Commit to all dirty repos
+viewyard push-all                       # Push repos with commits ahead
+viewyard rebase                         # Rebase all repos against origin/main
 ```
 
 ## 🏗️ How It Works
 
-### 1. Configure Your Viewsets
+### 1. Authenticate with GitHub
 ```bash
-# Create ~/.config/viewyard/viewsets.yaml
-viewsets:
-  work:
-    repos:
-      - name: web-frontend
-        url: git@github.com:company/web-frontend.git
-      - name: api-backend
-        url: git@github.com:company/api-backend.git
-  personal:
-    repos:
-      - name: my-cli-tool
-        url: git@github.com:me/my-cli-tool.git
+# One-time setup - authenticate with GitHub CLI
+gh auth login
+# Supports multiple accounts for work/personal separation
 ```
 
-### 2. Create a Task View
+### 2. Create a Viewset (Project Workspace)
 ```bash
-viewyard view create FEATURE-123
-# Uses default viewset, shows numbered list of available repos
-# Select: 1 2 (for web-frontend + api-backend)
-# Creates isolated workspace at ~/src/work/views/FEATURE-123/
-
-# Or specify a viewset:
-viewyard view create --viewset personal MY-FEATURE
-# Creates workspace at ~/src/personal/views/MY-FEATURE/
+viewyard viewset create my-project
+# Interactive selection from your GitHub repositories
+# Creates .viewyard-repos.json configuration file
 ```
 
-### 3. Work in Complete Isolation
+### 3. Create Views (Synchronized Branch Workspaces)
 ```bash
-cd ~/src/work/views/FEATURE-123
-# You now have:
-# - web-frontend/            (on FEATURE-123 branch)
-# - api-backend/             (on FEATURE-123 branch)
+cd my-project
+viewyard view create feature-123
+# Creates 'feature-123' branch in all repositories
+# All repos are synchronized on the same branch
 ```
 
-### 4. Use Smart Commands
+### 4. Work Across Repositories
 ```bash
-viewyard status                 # Check status of all repos
-viewyard commit-all "Fix bug"   # Commits to all dirty repos
-viewyard push-all              # Pushes only repos with commits ahead
-viewyard rebase                # Rebase all repos against origin/main
+cd feature-123
+# Edit files in any repository
+# All repositories are on the same branch for coordinated development
 ```
 
-### 5. Clean Up When Done
+### 5. Coordinate Changes
 ```bash
-# When finished with the task, simply delete the view directory
-rm -rf ~/src/default/views/FEATURE-123
-# No Git complexity - just remove the isolated workspace
+viewyard status                 # See status of both repos (branch sync validated)
+viewyard commit-all "Add user authentication"
+viewyard push-all              # Push both repos
 ```
 
-
-
-## 📁 Workspace Structure
-
-```
-~/src/<viewset>/views/           # Task workspaces
-├── FEATURE-123/                 # Your task view
-│   ├── web-frontend/            # Repo on task branch
-│   └── api-backend/             # Repo on task branch
-└── BUGFIX-456/                  # Another task view
-    ├── web-frontend/
-    └── database-migrations/
-```
-
-
-
-## 📋 View Templates
-
-Templates allow you to save common repository configurations for reuse across multiple views.
-
-### Creating Templates
+### 6. Create Additional Views
 ```bash
-# Add template configuration to viewsets.yaml
-viewsets:
-  work:
-    repos:
-      - name: web-frontend
-        url: git@github.com:company/web-frontend.git
-      - name: api-backend
-        url: git@github.com:company/api-backend.git
-      - name: database-migrations
-        url: git@github.com:company/database-migrations.git
-    templates:
-      fullstack:
-        repos: [web-frontend, api-backend, database-migrations]
-      frontend-only:
-        repos: [web-frontend]
-      backend-only:
-        repos: [api-backend, database-migrations]
+cd ..  # Back to viewset root
+viewyard view create bug-fix-456  # Creates new synchronized branch workspace
 ```
 
-### Using Templates
-```bash
-# Create view using a template
-viewyard view create --template fullstack my-feature
-# Automatically selects web-frontend, api-backend, and database-migrations
+## 🗂️ Directory Structure
 
-# Still works with interactive selection
-viewyard view create my-feature
-# Shows numbered list, you pick what you need
+```
+my-project/                      # Viewset (project workspace)
+├── .viewyard-repos.json        # Repository configuration
+├── feature-123/                # View (synchronized branch workspace)
+│   ├── web-frontend/           # Repository on 'feature-123' branch
+│   └── api-backend/            # Repository on 'feature-123' branch
+└── bug-fix-456/               # Another view
+    ├── web-frontend/          # Repository on 'bug-fix-456' branch
+    └── api-backend/           # Repository on 'bug-fix-456' branch
 ```
 
-### Benefits of Templates
-- **Consistent setups** - same repo combinations for similar work
-- **Faster creation** - no need to remember which repos you need
-- **Team sharing** - standardize common configurations
-- **Flexible** - can still override with interactive selection
+**Key Benefits:**
+- **Minimal configuration** - only one JSON file per viewset (auto-generated)
+- **Hierarchical organization** - viewsets contain multiple synchronized views
+- **Branch synchronization** - all repos in a view are on the same branch
+- **Automatic detection** - context determined from directory structure
+- **Clean deletion** - just `rm -rf viewset-name` when done
 
-## 🔧 Advanced Configuration
+## 🤖 Manual Configuration
 
-### Git Configuration for Multiple Contexts
-Configure git to use different credentials for different viewsets:
+You can bypass interactive selection by creating the `.viewyard-repos.json` file directly:
 
 ```bash
-# ~/.gitconfig
-[includeIf "gitdir:~/src/src-work/"]
-    path = ~/.gitconfig-work
-[includeIf "gitdir:~/src/src-personal/"]
-    path = ~/.gitconfig-personal
+# Create a viewset directory
+mkdir my-project && cd my-project
 
-# ~/.gitconfig-work
-[user]
-    name = "Your Work Name"
-    email = "you@company.com"
+# Create the repository configuration manually
+cat > .viewyard-repos.json << 'EOF'
+[
+  {
+    "name": "frontend",
+    "url": "git@github.com:myorg/frontend.git",
+    "is_private": false,
+    "source": "GitHub (myorg)"
+  },
+  {
+    "name": "backend", 
+    "url": "git@github.com:myorg/backend.git",
+    "is_private": true,
+    "source": "GitHub (myorg)"
+  }
+]
+EOF
 
-# ~/.gitconfig-personal
-[user]
-    name = "Your Personal Name"
-    email = "you@personal.com"
+# Now create views normally
+viewyard view create feature-123
 ```
 
-## 💡 Examples
+## 📚 Documentation
 
-### Work Feature Development
-```bash
-# Create view for work feature (uses default viewset)
-viewyard view create FEATURE-456
-# Select: 1 2 (web-frontend + api-backend)
+- **[Installation & Setup](INSTALL.md)** - Prerequisites, GitHub CLI setup, troubleshooting
+- **[Examples & Workflows](EXAMPLES.md)** - Detailed usage examples and team patterns
+- **[Security & Privacy](SECURITY.md)** - Data handling and security considerations
+- **[Contributing](CONTRIBUTING.md)** - Development setup and contribution guidelines
 
-cd src-work/views/FEATURE-456
-viewyard status                 # Check current state
-# Make your changes...
-viewyard commit-all "Implement new feature"
-viewyard push-all               # Push to GitHub
-```
+## 🔍 Repository Discovery
 
-### Personal Project
-```bash
-# Create view for personal project
-viewyard view create --viewset personal my-feature
-# Select repos from personal viewset
+Viewyard automatically discovers repositories from your GitHub accounts:
+- **Personal repositories** from your authenticated account
+- **Organization repositories** from organizations you belong to
+- **Multiple account support** for work/personal separation
 
-cd src-personal/views/my-feature
-viewyard status                 # Check current state
-# Make your changes...
-viewyard commit-all "Add cool feature"
-viewyard push-all               # Push to GitHub
-```
+## ⚡ Why Viewyard?
 
-### Multi-Context Development
-```bash
-# Work on both work and personal projects
-viewyard view create --viewset work WORK-123
-viewyard view create --viewset personal SIDE-PROJECT
+**Problems with monorepos:**
+- Massive clone times and disk usage
+- Complex build systems and tooling
+- Tight coupling between unrelated code
+- Difficult access control and team boundaries
 
-# Switch between contexts easily
-cd src-work/views/WORK-123      # Work context
-cd src-personal/views/SIDE-PROJECT  # Personal context
-```
+**Problems with scattered repos:**
+- No coordination between related changes
+- Manual branch management across repositories
+- Inconsistent development environments
+- Complex release coordination
 
-## 🛠️ Advanced Usage
-
-### View Management
-```bash
-# See all active views
-viewyard view list
-
-# Multiple views for parallel work
-viewyard view create feature-a
-viewyard view create feature-b
-```
-
-## 🔍 Troubleshooting
-
-### Setup Issues
-```bash
-# Validate your setup
-viewyard view validate
-
-# Check viewsets config
-cat ~/.config/viewyard/viewsets.yaml
-
-# Test basic functionality
-viewyard --help
-```
-
-### Repository Issues
-```bash
-# If repos aren't cloning
-# Check SSH access to GitHub
-ssh -T git@github.com
-
-# Check git configuration
-git config --list
-
-# If branches don't exist
-# They'll be created automatically
-```
-
-### Git Configuration Issues
-```bash
-# Check git config is working
-cd src-work/views/some-view
-git config user.email  # Should show work email
-
-cd src-personal/views/some-view
-git config user.email  # Should show personal email
-```
-
-## 🛠️ Development & Contributing
-
-### Quality Tools
-Viewyard uses standard Cargo quality tools:
-- `cargo fmt` - Automatic code formatting
-- `cargo clippy` - Linting and static analysis
-- `cargo test` - Run tests
-
-These are configured in `Cargo.toml` and run automatically during development.
-
-### Building from Source
-```bash
-# Clone and build
-git clone https://github.com/your-org/viewyard.git
-cd viewyard
-cargo build --release
-
-# Run tests
-cargo test
-
-# Format and lint
-cargo fmt
-cargo clippy
-```
-
-### Contributing
-- **Issues**: Report bugs and request features via GitHub Issues
-- **Pull Requests**: Contributions welcome, please follow existing code style
-- **Testing**: Add tests for new functionality
-- **Documentation**: Update README and code comments as needed
+**Viewyard's solution:**
+- **Synchronized branches** across multiple repositories
+- **Lightweight coordination** without monorepo complexity
+- **Flexible organization** - use multiple viewsets for different projects
 
 ---
 
-**Simple. Isolated. Reliable. Monorepo experience, multi-repo reality.**
+Monorepo experience, multi-repo reality.

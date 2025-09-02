@@ -100,7 +100,7 @@ viewyard commit-all "msg"
 
 ### **Configuration Changes**
 ```yaml
-# OLD (scope creep)
+# OLD (complex configuration)
 viewsets:
   work:
     repos:
@@ -109,12 +109,9 @@ viewsets:
         build: make          # ❌ Removed
         test: make test      # ❌ Removed
 
-# NEW (focused)
-viewsets:
-  work:
-    repos:
-      - name: api-service
-        url: git@github.com:company/api.git
+# NEW (zero configuration)
+# No configuration files needed!
+# Dynamic repository discovery from GitHub accounts
 ```
 
 ## 📊 **Performance Improvements**
@@ -175,12 +172,12 @@ viewyard workspace push-all  → viewyard push-all
 
 ```bash
 # Download the release binary
-curl -L https://github.com/daniel-heater-imprivata/viewyard/releases/download/v0.2.0/viewyard-v0.2.0-macos -o viewyard
+curl -L https://github.com/dheater/viewyard/releases/download/v0.2.0/viewyard-v0.2.0-macos -o viewyard
 chmod +x viewyard
 sudo mv viewyard /usr/local/bin/
 
 # Or build from source
-git clone https://github.com/daniel-heater-imprivata/viewyard.git
+git clone https://github.com/dheater/viewyard.git
 cd viewyard
 cargo build --release
 ```
@@ -205,4 +202,4 @@ The result is a **dramatically simpler, more reliable tool** that does exactly w
 
 ---
 
-**Full Changelog**: https://github.com/daniel-heater-imprivata/viewyard/compare/v0.1.0...v0.2.0
+**Full Changelog**: https://github.com/dheater/viewyard/compare/v0.1.0...v0.2.0

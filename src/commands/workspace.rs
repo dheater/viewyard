@@ -1,10 +1,64 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Subcommand;
-use std::fs;
 use std::path::Path;
 
 use crate::git;
+use crate::models;
 use crate::ui;
+
+/// Validate and load repository configuration from JSON file
+fn load_and_validate_repos(repos_file: &Path) -> Result<Vec<models::Repository>> {
+    let repos_json = std::fs::read_to_string(repos_file).with_context(|| {
+        format!(
+            "Failed to read configuration file: {}",
+            repos_file.display()
+        )
+    })?;
+
+    let repositories: Vec<models::Repository> = serde_json::from_str(&repos_json)
+        .with_context(|| {
+            format!(
+                "Invalid JSON in configuration file: {}\n\
+                Expected format: array of repository objects with 'name', 'url', 'is_private', and 'source' fields",
+                repos_file.display()
+            )
+        })?;
+
+    // Validate each repository entry
+    for (index, repo) in repositories.iter().enumerate() {
+        if repo.name.trim().is_empty() {
+            anyhow::bail!(
+                "Invalid repository at index {}: 'name' field cannot be empty\n\
+                File: {}",
+                index,
+                repos_file.display()
+            );
+        }
+
+        if repo.url.trim().is_empty() {
+            anyhow::bail!(
+                "Invalid repository at index {}: 'url' field cannot be empty\n\
+                Repository: {}\n\
+                File: {}",
+                index,
+                repo.name,
+                repos_file.display()
+            );
+        }
+
+        // Basic URL validation - should contain git-like patterns
+        if !repo.url.contains("git") && !repo.url.contains("github") && !repo.url.contains("gitlab")
+        {
+            ui::print_warning(&format!(
+                "Repository '{}' has unusual URL format: {}\n\
+                This might not be a valid Git repository URL",
+                repo.name, repo.url
+            ));
+        }
+    }
+
+    Ok(repositories)
+}
 
 #[derive(Subcommand)]
 pub enum WorkspaceCommand {
@@ -23,6 +77,10 @@ pub enum WorkspaceCommand {
     PushAll,
 }
 
+/// Handle workspace commands that operate on all repositories in the current view
+///
+/// These commands must be run from within a view directory and will validate
+/// that all repositories are synchronized on the same branch before proceeding.
 pub fn handle_command(command: WorkspaceCommand) -> Result<()> {
     match command {
         WorkspaceCommand::Status => workspace_status(),
@@ -37,14 +95,22 @@ fn workspace_status() -> Result<()> {
 
     // Detect current view
     let current_dir = std::env::current_dir()?;
-    let view_context = load_view_context(&current_dir)?;
+    let view_context =
+        load_view_context(&current_dir).with_context(|| "Failed to run 'viewyard status'")?;
 
+    ui::print_info(&format!("Viewset: {}", view_context.viewset_name));
     ui::print_info(&format!("View: {}", view_context.view_name));
     ui::print_info(&format!("Root: {}", view_context.view_root.display()));
 
     if view_context.active_repos.is_empty() {
         ui::print_warning("No repositories in this view");
         return Ok(());
+    }
+
+    // Validate branch synchronization
+    if let Err(e) = validate_branch_synchronization(&view_context) {
+        ui::print_warning(&format!("Branch synchronization check failed: {e}"));
+        ui::print_info("Continuing with status check...");
     }
 
     ui::print_info("");
@@ -55,27 +121,27 @@ fn workspace_status() -> Result<()> {
     let mut dirty_count = 0;
     let mut ahead_count = 0;
 
-    for repo_name in &view_context.active_repos {
-        let repo_path = view_context.view_root.join(repo_name);
+    for repo in &view_context.active_repos {
+        let repo_path = view_context.view_root.join(&repo.name);
 
         if !repo_path.exists() {
-            ui::print_warning(&format!("⚠️  {}: Directory not found", repo_name));
+            ui::print_warning(&format!("⚠️  {}: Directory not found", repo.name));
             continue;
         }
 
         if !git::is_git_repo(&repo_path) {
-            ui::print_warning(&format!("⚠️  {}: Not a git repository", repo_name));
+            ui::print_warning(&format!("⚠️  {}: Not a git repository", repo.name));
             continue;
         }
 
         // Get branch for consistency check
         let branch = git::get_current_branch(&repo_path).unwrap_or_else(|_| "unknown".to_string());
-        repo_branches.push((repo_name.clone(), branch.clone()));
+        repo_branches.push((repo.name.clone(), branch.clone()));
 
         // Get repository status
-        match get_repo_status(&repo_path, repo_name) {
+        match get_repo_status(&repo_path, &repo.name) {
             Ok(Some(status)) => {
-                println!("{}", status);
+                println!("{status}");
                 if status.contains("changes") {
                     dirty_count += 1;
                 }
@@ -85,11 +151,11 @@ fn workspace_status() -> Result<()> {
             }
             Ok(None) => {
                 // Show clean repos too
-                println!("✓ {} ({}) - clean", repo_name, branch);
+                println!("✓ {} ({}) - clean", repo.name, branch);
                 clean_count += 1;
             }
             Err(e) => {
-                ui::print_warning(&format!("⚠️  {}: Error getting status - {}", repo_name, e))
+                ui::print_warning(&format!("⚠️  {}: Error getting status - {}", repo.name, e));
             }
         }
     }
@@ -105,25 +171,26 @@ fn workspace_rebase() -> Result<()> {
     ui::print_header("Rebasing repositories");
 
     let current_dir = std::env::current_dir()?;
-    let view_context = load_view_context(&current_dir)?;
+    let view_context =
+        load_view_context(&current_dir).with_context(|| "Failed to run 'viewyard rebase'")?;
 
     let mut rebased_repos = Vec::new();
     let mut error_repos = Vec::new();
     let mut repos_to_rebase = Vec::new();
 
     // First pass: identify repos that exist and are git repositories
-    for repo_name in &view_context.active_repos {
-        let repo_path = view_context.view_root.join(repo_name);
+    for repo in &view_context.active_repos {
+        let repo_path = view_context.view_root.join(&repo.name);
 
         if !repo_path.exists() || !git::is_git_repo(&repo_path) {
             ui::print_warning(&format!(
                 "⚠️  {}: Directory not found or not a git repository",
-                repo_name
+                repo.name
             ));
             continue;
         }
 
-        repos_to_rebase.push(repo_name.clone());
+        repos_to_rebase.push(repo.name.clone());
     }
 
     if repos_to_rebase.is_empty() {
@@ -131,21 +198,24 @@ fn workspace_rebase() -> Result<()> {
         return Ok(());
     }
 
-    ui::print_info(&format!("Found {} repositories to rebase", repos_to_rebase.len()));
+    ui::print_info(&format!(
+        "Found {} repositories to rebase",
+        repos_to_rebase.len()
+    ));
 
     // Second pass: perform rebase operations
     for repo_name in repos_to_rebase {
         let repo_path = view_context.view_root.join(&repo_name);
 
-        ui::print_info(&format!("🔄 Rebasing {}", repo_name));
+        ui::print_info(&format!("🔄 Rebasing {repo_name}"));
 
         match rebase_repo(&repo_path) {
             Ok(()) => {
-                ui::print_success(&format!("✅ {}: Rebased successfully", repo_name));
+                ui::print_success(&format!("✅ {repo_name}: Rebased successfully"));
                 rebased_repos.push(repo_name);
             }
             Err(e) => {
-                ui::print_error(&format!("❌ {}: Failed to rebase - {}", repo_name, e));
+                ui::print_error(&format!("❌ {repo_name}: Failed to rebase - {e}"));
                 error_repos.push((repo_name, e.to_string()));
             }
         }
@@ -166,7 +236,7 @@ fn workspace_rebase() -> Result<()> {
             error_repos.len()
         ));
         for (repo, error) in &error_repos {
-            ui::print_error(&format!("   {}: {}", repo, error));
+            ui::print_error(&format!("   {repo}: {error}"));
         }
         anyhow::bail!("Some repositories failed to rebase");
     }
@@ -175,39 +245,36 @@ fn workspace_rebase() -> Result<()> {
 }
 
 fn workspace_commit_all(message: &str) -> Result<()> {
-    ui::print_header(&format!(
-        "Committing repositories with changes: {}",
-        message
-    ));
+    ui::print_header(&format!("Committing repositories with changes: {message}"));
 
     let current_dir = std::env::current_dir()?;
-    let view_context = load_view_context(&current_dir)?;
+    let view_context =
+        load_view_context(&current_dir).with_context(|| "Failed to run 'viewyard commit-all'")?;
 
     let mut committed_repos = Vec::new();
-    let mut error_repos = Vec::new();
     let mut repos_to_commit = Vec::new();
 
     // First pass: identify repos that need committing
-    for repo_name in &view_context.active_repos {
-        let repo_path = view_context.view_root.join(repo_name);
+    for repo in &view_context.active_repos {
+        let repo_path = view_context.view_root.join(&repo.name);
 
         if !repo_path.exists() || !git::is_git_repo(&repo_path) {
             ui::print_warning(&format!(
                 "⚠️  {}: Directory not found or not a git repository",
-                repo_name
+                repo.name
             ));
             continue;
         }
 
         match git::has_uncommitted_changes(&repo_path) {
             Ok(true) => {
-                repos_to_commit.push(repo_name.clone());
+                repos_to_commit.push(repo.name.clone());
             }
             Ok(false) => {
                 // Skip clean repos silently
             }
             Err(e) => {
-                ui::print_warning(&format!("⚠️  {}: Error checking status - {}", repo_name, e));
+                ui::print_warning(&format!("⚠️  {}: Error checking status - {}", repo.name, e));
             }
         }
     }
@@ -226,20 +293,18 @@ fn workspace_commit_all(message: &str) -> Result<()> {
     for repo_name in &repos_to_commit {
         let repo_path = view_context.view_root.join(repo_name);
 
-        ui::print_info(&format!("Committing changes in {}", repo_name));
+        ui::print_info(&format!("Committing changes in {repo_name}"));
         match commit_repo_changes(&repo_path, message) {
             Ok(()) => {
                 committed_repos.push(repo_name.clone());
             }
             Err(e) => {
-                ui::print_error(&format!("❌ Failed to commit {}: {}", repo_name, e));
-                error_repos.push(repo_name.clone());
+                ui::print_error(&format!("❌ Failed to commit {repo_name}: {e}"));
 
                 // Rollback: reset any staged changes
                 if let Err(reset_err) = git::run_git_command(&["reset", "HEAD"], Some(&repo_path)) {
                     ui::print_warning(&format!(
-                        "⚠️  Failed to rollback staged changes in {}: {}",
-                        repo_name, reset_err
+                        "⚠️  Failed to rollback staged changes in {repo_name}: {reset_err}"
                     ));
                 }
 
@@ -284,6 +349,13 @@ fn commit_repo_changes(repo_path: &Path, message: &str) -> Result<()> {
 }
 
 fn rebase_repo(repo_path: &Path) -> Result<()> {
+    // Check for clean working directory first
+    if git::has_uncommitted_changes(repo_path)? {
+        anyhow::bail!(
+            "Cannot rebase with uncommitted changes. Please commit or stash your changes first."
+        );
+    }
+
     // First, fetch the latest changes
     git::fetch(repo_path)?;
 
@@ -292,9 +364,9 @@ fn rebase_repo(repo_path: &Path) -> Result<()> {
 
     // Rebase against origin/main or origin/master
     // Try main first, then master as fallback
-    let rebase_target = if git::branch_exists("origin/main", repo_path)? {
+    let rebase_target = if git::branch_exists("origin/main", repo_path) {
         "origin/main"
-    } else if git::branch_exists("origin/master", repo_path)? {
+    } else if git::branch_exists("origin/master", repo_path) {
         "origin/master"
     } else {
         anyhow::bail!("Neither origin/main nor origin/master branch found");
@@ -302,39 +374,66 @@ fn rebase_repo(repo_path: &Path) -> Result<()> {
 
     // Only rebase if we're not already on the target branch
     if current_branch != "main" && current_branch != "master" {
-        git::rebase(rebase_target, repo_path)?;
+        // Attempt rebase with conflict detection
+        match git::rebase(rebase_target, repo_path) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Check if we're in a rebase state (conflict occurred)
+                if repo_path.join(".git/rebase-merge").exists()
+                    || repo_path.join(".git/rebase-apply").exists()
+                {
+                    ui::print_error("🔥 Rebase conflict detected!");
+                    ui::print_info("📋 Manual resolution required:");
+                    ui::print_info("   1. Navigate to the repository:");
+                    ui::print_info(&format!("      cd {}", repo_path.display()));
+                    ui::print_info("   2. Resolve conflicts in the affected files");
+                    ui::print_info("   3. Stage resolved files: git add <file>");
+                    ui::print_info("   4. Continue rebase: git rebase --continue");
+                    ui::print_info("   5. Or abort rebase: git rebase --abort");
+                    ui::print_info("");
+                    ui::print_info("💡 Common conflict resolution:");
+                    ui::print_info("   • Edit files to resolve <<<< ==== >>>> markers");
+                    ui::print_info("   • Use 'git status' to see conflicted files");
+                    ui::print_info("   • Use 'git diff' to see conflict details");
+
+                    anyhow::bail!("Rebase conflict requires manual resolution")
+                }
+                // Some other rebase error
+                Err(e).context("Rebase failed")
+            }
+        }
     } else {
         // If we're on main/master, just fast-forward merge
         git::merge_fast_forward(rebase_target, repo_path)?;
+        Ok(())
     }
-
-    Ok(())
 }
 
 fn workspace_push_all() -> Result<()> {
     ui::print_header("Pushing repositories with unpushed commits");
 
     let current_dir = std::env::current_dir()?;
-    let view_context = load_view_context(&current_dir)?;
+    let view_context =
+        load_view_context(&current_dir).with_context(|| "Failed to run 'viewyard push-all'")?;
 
     let mut pushed_repos = Vec::new();
     let mut repos_to_push = Vec::new();
 
     // First pass: identify repos that need pushing
-    for repo_name in &view_context.active_repos {
-        let repo_path = view_context.view_root.join(repo_name);
+    for repo in &view_context.active_repos {
+        let repo_path = view_context.view_root.join(&repo.name);
 
         if !repo_path.exists() || !git::is_git_repo(&repo_path) {
             ui::print_warning(&format!(
                 "⚠️  {}: Directory not found or not a git repository",
-                repo_name
+                repo.name
             ));
             continue;
         }
 
         match git::has_unpushed_commits(&repo_path) {
             Ok(true) => {
-                repos_to_push.push(repo_name.clone());
+                repos_to_push.push(repo.name.clone());
             }
             Ok(false) => {
                 // Skip repos with nothing to push silently
@@ -342,7 +441,7 @@ fn workspace_push_all() -> Result<()> {
             Err(e) => {
                 ui::print_warning(&format!(
                     "⚠️  {}: Error checking push status - {}",
-                    repo_name, e
+                    repo.name, e
                 ));
             }
         }
@@ -362,13 +461,13 @@ fn workspace_push_all() -> Result<()> {
     for repo_name in &repos_to_push {
         let repo_path = view_context.view_root.join(repo_name);
 
-        ui::print_info(&format!("Pushing commits in {}", repo_name));
+        ui::print_info(&format!("Pushing commits in {repo_name}"));
         match git::push(&repo_path) {
             Ok(()) => {
                 pushed_repos.push(repo_name.clone());
             }
             Err(e) => {
-                ui::print_error(&format!("❌ Failed to push {}: {}", repo_name, e));
+                ui::print_error(&format!("❌ Failed to push {repo_name}: {e}"));
 
                 // For push failures, we can't really rollback, but we can inform the user
                 ui::print_error("❌ Push operation stopped due to failure");
@@ -406,56 +505,72 @@ fn workspace_push_all() -> Result<()> {
 
 #[derive(Debug)]
 struct ViewContext {
-    view_name: String,
+    viewset_name: String,
     view_root: std::path::PathBuf,
-    active_repos: Vec<String>,
+    view_name: String,
+    active_repos: Vec<models::Repository>,
 }
 
 fn load_view_context(current_dir: &Path) -> Result<ViewContext> {
-    // Look for .viewyard-context file in current directory or parent directories
-    let mut search_dir = current_dir;
-
-    loop {
-        let context_file = search_dir.join(".viewyard-context");
-        if context_file.exists() {
-            let content = fs::read_to_string(&context_file)?;
-            let yaml_value: serde_yaml::Value = serde_yaml::from_str(&content)?;
-
-            let view_name = yaml_value["view_name"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("Missing view_name in context file"))?
+    // Check if current directory is a view (parent contains .viewyard-repos.json)
+    if let Some(parent) = current_dir.parent() {
+        let repos_file = parent.join(".viewyard-repos.json");
+        if repos_file.exists() {
+            let viewset_name = parent
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let view_name = current_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
                 .to_string();
 
-            let view_root = yaml_value["view_root"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("Missing view_root in context file"))?;
-
-            let active_repos = yaml_value["active_repos"]
-                .as_sequence()
-                .ok_or_else(|| anyhow::anyhow!("Missing active_repos in context file"))?
-                .iter()
-                .filter_map(|v| v.as_str().map(std::string::ToString::to_string))
-                .collect();
+            // Load and validate repository list from viewset
+            let active_repos = load_and_validate_repos(&repos_file).unwrap_or_else(|e| {
+                ui::print_error(&format!("Configuration validation failed: {e}"));
+                ui::print_info("💡 To fix this:");
+                ui::print_info("   • Check the JSON syntax in .viewyard-repos.json");
+                ui::print_info("   • Ensure all repositories have 'name' and 'url' fields");
+                ui::print_info("   • Use 'cat .viewyard-repos.json' to inspect the file");
+                Vec::new()
+            });
 
             return Ok(ViewContext {
+                viewset_name,
+                view_root: current_dir.to_path_buf(),
                 view_name,
-                view_root: std::path::PathBuf::from(view_root),
                 active_repos,
             });
         }
-
-        match search_dir.parent() {
-            Some(parent) => search_dir = parent,
-            None => break,
-        }
     }
 
-    anyhow::bail!("Not in a viewyard view directory. Run this command from within a view.")
+    // Provide detailed context about where the user is and what's expected
+    let current_path = current_dir.display();
+    let parent_info = current_dir.parent().map_or_else(
+        || "No parent directory found".to_string(),
+        |parent| format!("Parent directory: {}", parent.display()),
+    );
+
+    ui::show_error_with_help(
+        "Workspace commands must be run from within a view directory",
+        &[
+            &format!("Current directory: {current_path}"),
+            &parent_info,
+            "Expected structure: <viewset>/<view>/",
+            "Example: cd my-project/feature-123",
+            "Create a view: viewyard view create feature-123",
+            "List viewsets: find . -maxdepth 2 -name '.viewyard-repos.json' -exec dirname {} \\;",
+        ],
+    );
+    anyhow::bail!("Not in a view directory")
 }
 
 fn get_repo_status(repo_path: &Path, repo_name: &str) -> Result<Option<String>> {
     // Get current branch
-    let branch = git::get_current_branch(repo_path).unwrap_or_else(|_| "unknown".to_string());
+    let branch = git::get_current_branch(repo_path)
+        .with_context(|| format!("Failed to get current branch for repository '{repo_name}'"))?;
 
     // Check for uncommitted changes
     let has_changes = git::has_uncommitted_changes(repo_path)?;
@@ -480,7 +595,7 @@ fn get_repo_status(repo_path: &Path, repo_name: &str) -> Result<Option<String>> 
             Ok(status_output) => {
                 let change_count = status_output.lines().count();
                 if change_count > 0 {
-                    status_parts.push(format!("{} changes", change_count));
+                    status_parts.push(format!("{change_count} changes"));
                 }
             }
             Err(_) => {
@@ -494,7 +609,7 @@ fn get_repo_status(repo_path: &Path, repo_name: &str) -> Result<Option<String>> 
             Ok(count_str) => {
                 if let Ok(count) = count_str.parse::<u32>() {
                     if count > 0 {
-                        status_parts.push(format!("{} commits ahead", count));
+                        status_parts.push(format!("{count} commits ahead"));
                     }
                 }
             }
@@ -505,7 +620,7 @@ fn get_repo_status(repo_path: &Path, repo_name: &str) -> Result<Option<String>> 
     }
 
     if stash_count > 0 {
-        status_parts.push(format!("{} stashes", stash_count));
+        status_parts.push(format!("{stash_count} stashes"));
     }
 
     let status_summary = if status_parts.is_empty() {
@@ -516,7 +631,9 @@ fn get_repo_status(repo_path: &Path, repo_name: &str) -> Result<Option<String>> 
 
     let icon = if has_changes { "⚠" } else { "→" };
 
-    Ok(Some(format!("{} {} ({}) - {}", icon, repo_name, branch, status_summary)))
+    Ok(Some(format!(
+        "{icon} {repo_name} ({branch}) - {status_summary}"
+    )))
 }
 
 fn check_branch_consistency(repo_branches: &[(String, String)]) {
@@ -525,9 +642,13 @@ fn check_branch_consistency(repo_branches: &[(String, String)]) {
     }
 
     // Group repos by branch
-    let mut branch_groups: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut branch_groups: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
     for (repo, branch) in repo_branches {
-        branch_groups.entry(branch.clone()).or_default().push(repo.clone());
+        branch_groups
+            .entry(branch.clone())
+            .or_default()
+            .push(repo.clone());
     }
 
     if branch_groups.len() > 1 {
@@ -543,18 +664,23 @@ fn check_branch_consistency(repo_branches: &[(String, String)]) {
     }
 }
 
-fn show_status_summary(clean_count: usize, dirty_count: usize, ahead_count: usize, repo_branches: &[(String, String)]) {
+fn show_status_summary(
+    clean_count: usize,
+    dirty_count: usize,
+    ahead_count: usize,
+    repo_branches: &[(String, String)],
+) {
     let total = clean_count + dirty_count;
     let mut summary_parts = Vec::new();
 
     if clean_count > 0 {
-        summary_parts.push(format!("{} clean", clean_count));
+        summary_parts.push(format!("{clean_count} clean"));
     }
     if dirty_count > 0 {
-        summary_parts.push(format!("{} dirty", dirty_count));
+        summary_parts.push(format!("{dirty_count} dirty"));
     }
     if ahead_count > 0 {
-        summary_parts.push(format!("{} ahead", ahead_count));
+        summary_parts.push(format!("{ahead_count} ahead"));
     }
 
     let status_summary = if summary_parts.is_empty() {
@@ -565,15 +691,98 @@ fn show_status_summary(clean_count: usize, dirty_count: usize, ahead_count: usiz
 
     // Check if all repos are on the same branch
     let branch_consistency = if repo_branches.len() <= 1 {
-        "".to_string()
+        String::new()
     } else {
         let first_branch = &repo_branches[0].1;
-        if repo_branches.iter().all(|(_, branch)| branch == first_branch) {
-            format!(" | All on {} ✓", first_branch)
+        if repo_branches
+            .iter()
+            .all(|(_, branch)| branch == first_branch)
+        {
+            format!(" | All on {first_branch} ✓")
         } else {
             " | Mixed branches ⚠️".to_string()
         }
     };
 
-    ui::print_info(&format!("{} repos: {}{}", total, status_summary, branch_consistency));
+    ui::print_info(&format!(
+        "{total} repos: {status_summary}{branch_consistency}"
+    ));
+}
+
+fn validate_branch_synchronization(view_context: &ViewContext) -> Result<()> {
+    let mut branches = std::collections::HashMap::new();
+    let mut errors = Vec::new();
+
+    // Check branch for each repository
+    for repo in &view_context.active_repos {
+        let repo_path = view_context.view_root.join(&repo.name);
+
+        if !repo_path.exists() {
+            errors.push(format!("Repository '{}' directory not found", repo.name));
+            continue;
+        }
+
+        if !git::is_git_repo(&repo_path) {
+            errors.push(format!("'{}' is not a git repository", repo.name));
+            continue;
+        }
+
+        match git::get_current_branch(&repo_path) {
+            Ok(branch) => {
+                branches.insert(repo.name.clone(), branch);
+            }
+            Err(e) => {
+                errors.push(format!("Failed to get branch for '{}': {}", repo.name, e));
+            }
+        }
+    }
+
+    // Report any errors
+    if !errors.is_empty() {
+        for error in &errors {
+            ui::print_warning(&format!("⚠️  {error}"));
+        }
+        anyhow::bail!("Cannot validate branch synchronization due to repository errors");
+    }
+
+    // Check if all repositories are on the same branch
+    let expected_branch = &view_context.view_name;
+    let mut mismatched_repos = Vec::new();
+
+    for (repo_name, actual_branch) in &branches {
+        if actual_branch != expected_branch {
+            mismatched_repos.push((repo_name.clone(), actual_branch.clone()));
+        }
+    }
+
+    if !mismatched_repos.is_empty() {
+        ui::show_error_with_help(
+            "Branch synchronization error: Not all repositories are on the expected branch",
+            &[
+                &format!("Expected branch: '{expected_branch}'"),
+                "Mismatched repositories:",
+            ],
+        );
+
+        for (repo_name, actual_branch) in &mismatched_repos {
+            println!("  - {repo_name}: on '{actual_branch}' (should be '{expected_branch}')");
+        }
+
+        ui::show_error_with_help(
+            "",
+            &[
+                "To fix this, checkout the correct branch in each repository:",
+                &format!("  cd <repo> && git checkout {expected_branch}"),
+                "Or create the branch if it doesn't exist:",
+                &format!("  cd <repo> && git checkout -b {expected_branch}"),
+            ],
+        );
+
+        anyhow::bail!("Branch synchronization failed");
+    }
+
+    ui::print_info(&format!(
+        "✓ All repositories are synchronized on branch '{expected_branch}'"
+    ));
+    Ok(())
 }
