@@ -48,10 +48,10 @@ pub fn print_header(text: &str) {
 
 /// Show a helpful error with suggestions
 pub fn show_error_with_help(error: &str, suggestions: &[&str]) {
-    print_error(&format!("❌ {error}"));
+    print_error(error);
     println!();
     if !suggestions.is_empty() {
-        print_colored("💡 Here's how to fix it:", Colors::CYAN);
+        print_colored("Here's how to fix it:", Colors::CYAN);
         for (i, suggestion) in suggestions.iter().enumerate() {
             println!("   {}. {}", i + 1, suggestion);
         }

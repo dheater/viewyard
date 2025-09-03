@@ -126,14 +126,14 @@ fn workspace_status() -> Result<()> {
 
         // Validate directory exists
         if let Err(e) = git::validate_repository_directory(&repo_path, &repo.name) {
-            ui::print_warning(&format!("⚠️  {}: {}", repo.name, e));
+            ui::print_warning(&format!("{}: {}", repo.name, e));
             continue;
         }
 
         // Validate git repository and user configuration (but don't fail on config issues for status)
         if let Err(e) = git::validate_repository_for_operations(&repo_path, repo) {
             ui::print_warning(&format!(
-                "⚠️  {}: Git configuration issue - {}",
+                "{}: Git configuration issue - {}",
                 repo.name, e
             ));
             // Continue with status check even if git config has issues
@@ -160,7 +160,7 @@ fn workspace_status() -> Result<()> {
                 clean_count += 1;
             }
             Err(e) => {
-                ui::print_warning(&format!("⚠️  {}: Error getting status - {}", repo.name, e));
+                ui::print_warning(&format!("{}: Error getting status - {}", repo.name, e));
             }
         }
     }
@@ -189,13 +189,13 @@ fn workspace_rebase() -> Result<()> {
 
         // Validate directory exists
         if let Err(e) = git::validate_repository_directory(&repo_path, &repo.name) {
-            ui::print_warning(&format!("⚠️  {}: {}", repo.name, e));
+            ui::print_warning(&format!("{}: {}", repo.name, e));
             continue;
         }
 
         // Validate git repository and user configuration
         if let Err(e) = git::validate_repository_for_operations(&repo_path, repo) {
-            ui::print_warning(&format!("⚠️  {}: {}", repo.name, e));
+            ui::print_warning(&format!("{}: {}", repo.name, e));
             continue;
         }
 
@@ -216,15 +216,15 @@ fn workspace_rebase() -> Result<()> {
     for repo_name in repos_to_rebase {
         let repo_path = view_context.view_root.join(&repo_name);
 
-        ui::print_info(&format!("🔄 Rebasing {repo_name}"));
+        ui::print_info(&format!("Rebasing {repo_name}"));
 
         match rebase_repo(&repo_path) {
             Ok(()) => {
-                ui::print_success(&format!("✅ {repo_name}: Rebased successfully"));
+                ui::print_success(&format!("{repo_name}: Rebased successfully"));
                 rebased_repos.push(repo_name);
             }
             Err(e) => {
-                ui::print_error(&format!("❌ {repo_name}: Failed to rebase - {e}"));
+                ui::print_error(&format!("{repo_name}: Failed to rebase - {e}"));
                 error_repos.push((repo_name, e.to_string()));
             }
         }
@@ -233,7 +233,7 @@ fn workspace_rebase() -> Result<()> {
     // Summary
     if !rebased_repos.is_empty() {
         ui::print_success(&format!(
-            "✅ Successfully rebased {} repositories: {}",
+            "Successfully rebased {} repositories: {}",
             rebased_repos.len(),
             rebased_repos.join(", ")
         ));
@@ -241,7 +241,7 @@ fn workspace_rebase() -> Result<()> {
 
     if !error_repos.is_empty() {
         ui::print_error(&format!(
-            "❌ Failed to rebase {} repositories",
+            "Failed to rebase {} repositories",
             error_repos.len()
         ));
         for (repo, error) in &error_repos {
@@ -269,13 +269,13 @@ fn workspace_commit_all(message: &str) -> Result<()> {
 
         // Validate directory exists
         if let Err(e) = git::validate_repository_directory(&repo_path, &repo.name) {
-            ui::print_warning(&format!("⚠️  {}: {}", repo.name, e));
+            ui::print_warning(&format!("{}: {}", repo.name, e));
             continue;
         }
 
         // Validate git repository and user configuration
         if let Err(e) = git::validate_repository_for_operations(&repo_path, repo) {
-            ui::print_warning(&format!("⚠️  {}: {}", repo.name, e));
+            ui::print_warning(&format!("{}: {}", repo.name, e));
             continue;
         }
 
@@ -287,7 +287,7 @@ fn workspace_commit_all(message: &str) -> Result<()> {
                 // Skip clean repos silently
             }
             Err(e) => {
-                ui::print_warning(&format!("⚠️  {}: Error checking status - {}", repo.name, e));
+                ui::print_warning(&format!("{}: Error checking status - {}", repo.name, e));
             }
         }
     }
@@ -312,22 +312,22 @@ fn workspace_commit_all(message: &str) -> Result<()> {
                 committed_repos.push(repo_name.clone());
             }
             Err(e) => {
-                ui::print_error(&format!("❌ Failed to commit {repo_name}: {e}"));
+                ui::print_error(&format!("Failed to commit {repo_name}: {e}"));
 
                 // Rollback: reset any staged changes
                 if let Err(reset_err) = git::run_git_command(&["reset", "HEAD"], Some(&repo_path)) {
                     ui::print_warning(&format!(
-                        "⚠️  Failed to rollback staged changes in {repo_name}: {reset_err}"
+                        "Failed to rollback staged changes in {repo_name}: {reset_err}"
                     ));
                 }
 
                 // Stop on first failure and inform user
-                ui::print_error("❌ Commit operation stopped due to failure");
+                ui::print_error("Commit operation stopped due to failure");
                 ui::print_info(
-                    "💡 Fix the issue in the failed repository and run the command again",
+                    "Fix the issue in the failed repository and run the command again",
                 );
                 ui::print_info(&format!(
-                    "💡 Successfully committed repositories: {}",
+                    "Successfully committed repositories: {}",
                     if committed_repos.is_empty() {
                         "none".to_string()
                     } else {
@@ -346,7 +346,7 @@ fn workspace_commit_all(message: &str) -> Result<()> {
     // Success summary
     if !committed_repos.is_empty() {
         ui::print_success(&format!(
-            "✅ Successfully committed {} repositories: {}",
+            "Successfully committed {} repositories: {}",
             committed_repos.len(),
             committed_repos.join(", ")
         ));
@@ -398,8 +398,8 @@ fn rebase_repo(repo_path: &Path) -> Result<()> {
                 if repo_path.join(".git/rebase-merge").exists()
                     || repo_path.join(".git/rebase-apply").exists()
                 {
-                    ui::print_error("🔥 Rebase conflict detected!");
-                    ui::print_info("📋 Manual resolution required:");
+                    ui::print_error("Rebase conflict detected!");
+                    ui::print_info("Manual resolution required:");
                     ui::print_info("   1. Navigate to the repository:");
                     ui::print_info(&format!("      cd {}", repo_path.display()));
                     ui::print_info("   2. Resolve conflicts in the affected files");
@@ -407,7 +407,7 @@ fn rebase_repo(repo_path: &Path) -> Result<()> {
                     ui::print_info("   4. Continue rebase: git rebase --continue");
                     ui::print_info("   5. Or abort rebase: git rebase --abort");
                     ui::print_info("");
-                    ui::print_info("💡 Common conflict resolution:");
+                    ui::print_info("Common conflict resolution:");
                     ui::print_info("   • Edit files to resolve <<<< ==== >>>> markers");
                     ui::print_info("   • Use 'git status' to see conflicted files");
                     ui::print_info("   • Use 'git diff' to see conflict details");
@@ -437,13 +437,13 @@ fn workspace_push_all() -> Result<()> {
 
         // Validate directory exists
         if let Err(e) = git::validate_repository_directory(&repo_path, &repo.name) {
-            ui::print_warning(&format!("⚠️  {}: {}", repo.name, e));
+            ui::print_warning(&format!("{}: {}", repo.name, e));
             continue;
         }
 
         // Validate git repository and user configuration
         if let Err(e) = git::validate_repository_for_operations(&repo_path, repo) {
-            ui::print_warning(&format!("⚠️  {}: {}", repo.name, e));
+            ui::print_warning(&format!("{}: {}", repo.name, e));
             continue;
         }
 
@@ -456,7 +456,7 @@ fn workspace_push_all() -> Result<()> {
             }
             Err(e) => {
                 ui::print_warning(&format!(
-                    "⚠️  {}: Error checking push status - {}",
+                    "{}: Error checking push status - {}",
                     repo.name, e
                 ));
             }
@@ -483,16 +483,16 @@ fn workspace_push_all() -> Result<()> {
                 pushed_repos.push(repo_name.clone());
             }
             Err(e) => {
-                ui::print_error(&format!("❌ Failed to push {repo_name}: {e}"));
+                ui::print_error(&format!("Failed to push {repo_name}: {e}"));
 
                 // For push failures, we can't really rollback, but we can inform the user
-                ui::print_error("❌ Push operation stopped due to failure");
-                ui::print_info("💡 Common solutions:");
+                ui::print_error("Push operation stopped due to failure");
+                ui::print_info("Common solutions:");
                 ui::print_info("   • Pull latest changes: git pull");
                 ui::print_info("   • Check remote permissions");
                 ui::print_info("   • Verify network connection");
                 ui::print_info(&format!(
-                    "💡 Successfully pushed repositories: {}",
+                    "Successfully pushed repositories: {}",
                     if pushed_repos.is_empty() {
                         "none".to_string()
                     } else {
@@ -508,7 +508,7 @@ fn workspace_push_all() -> Result<()> {
     // Success summary
     if !pushed_repos.is_empty() {
         ui::print_success(&format!(
-            "✅ Successfully pushed {} repositories: {}",
+            "Successfully pushed {} repositories: {}",
             pushed_repos.len(),
             pushed_repos.join(", ")
         ));
@@ -546,7 +546,7 @@ fn load_view_context(current_dir: &Path) -> Result<ViewContext> {
             // Load and validate repository list from viewset
             let active_repos = load_and_validate_repos(&repos_file).unwrap_or_else(|e| {
                 ui::print_error(&format!("Configuration validation failed: {e}"));
-                ui::print_info("💡 To fix this:");
+                ui::print_info("To fix this:");
                 ui::print_info("   • Check the JSON syntax in .viewyard-repos.json");
                 ui::print_info("   • Ensure all repositories have 'name' and 'url' fields");
                 ui::print_info("   • Use 'cat .viewyard-repos.json' to inspect the file");
@@ -645,7 +645,7 @@ fn get_repo_status(repo_path: &Path, repo_name: &str) -> Result<Option<String>> 
         status_parts.join(", ")
     };
 
-    let icon = if has_changes { "⚠" } else { "→" };
+    let icon = if has_changes { "!" } else { "→" };
 
     Ok(Some(format!(
         "{icon} {repo_name} ({branch}) - {status_summary}"
@@ -668,7 +668,7 @@ fn check_branch_consistency(repo_branches: &[(String, String)]) {
     }
 
     if branch_groups.len() > 1 {
-        ui::print_warning("⚠️  Branch mismatch detected:");
+        ui::print_warning("Branch mismatch detected:");
         for (branch, repos) in &branch_groups {
             if repos.len() == 1 {
                 ui::print_warning(&format!("  - {}: {}", repos[0], branch));
@@ -716,7 +716,7 @@ fn show_status_summary(
         {
             format!(" | All on {first_branch} ✓")
         } else {
-            " | Mixed branches ⚠️".to_string()
+            " | Mixed branches !".to_string()
         }
     };
 
@@ -756,7 +756,7 @@ fn validate_branch_synchronization(view_context: &ViewContext) -> Result<()> {
     // Report any errors
     if !errors.is_empty() {
         for error in &errors {
-            ui::print_warning(&format!("⚠️  {error}"));
+            ui::print_warning(&format!("{error}"));
         }
         anyhow::bail!("Cannot validate branch synchronization due to repository errors");
     }
