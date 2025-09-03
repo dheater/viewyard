@@ -139,9 +139,21 @@ Any additional information or examples.
 ## 🔧 Development Guidelines
 
 ### Commit Messages
-- **Use conventional commits**: `feat:`, `fix:`, `docs:`, `test:`, etc.
+**REQUIRED**: All commits must use conventional commit format.
+
+- **Use conventional commits**: `feat:`, `fix:`, `docs:`, `test:`, `style:`, `refactor:`, `perf:`, `chore:`
 - **Be descriptive**: Explain what and why, not just what
 - **Reference issues**: Include issue numbers when relevant
+
+Supported types:
+- `feat:` - New features
+- `fix:` - Bug fixes
+- `docs:` - Documentation changes
+- `style:` - Code style changes (formatting, missing semicolons, etc.)
+- `refactor:` - Code refactoring without changing functionality
+- `perf:` - Performance improvements
+- `test:` - Adding or updating tests
+- `chore:` - Maintenance tasks, dependency updates
 
 Example:
 ```
