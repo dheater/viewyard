@@ -3,6 +3,26 @@ use std::path::Path;
 use std::process::{Command, Output};
 use std::time::Duration;
 
+// # Git Configuration Safety
+//
+// **CRITICAL SECURITY CONSTRAINT**: This module MUST NEVER modify global git configuration.
+//
+// ## Safety Rules:
+// 1. All git config modifications MUST use `--local` flag only
+// 2. Global config access is READ-ONLY via `GitConfigScope::GlobalReadOnly`
+// 3. Tests MUST NOT modify global git configuration
+// 4. The `set_git_config()` function is hardcoded to use `--local` only
+//
+// ## Rationale:
+// Viewyard operates on multiple repositories and should never pollute the user's
+// global git environment. All configuration should be repository-specific to
+// maintain isolation and prevent unintended side effects.
+//
+// ## Enforcement:
+// - Type system prevents global modifications via `GitConfigScope` enum
+// - Tests verify global config is never modified
+// - Code review must check for any `--global` usage
+
 /// Run a git command and return the output
 pub fn run_git_command(args: &[&str], working_dir: Option<&Path>) -> Result<Output> {
     run_git_command_with_timeout(args, working_dir, Duration::from_secs(30))
@@ -204,4 +224,217 @@ pub fn get_default_branch(cwd: &Path) -> Result<String> {
     }
 
     anyhow::bail!("Could not determine default branch for repository")
+}
+
+/// Extract GitHub account from repository source string
+/// Supports formats: "GitHub (account)", "GitHub (org/account)", "GitHub (account) [private]"
+///
+/// # Panics
+/// This function will not panic as it validates the source format before using `unwrap()`
+pub fn extract_account_from_source(source: &str) -> Result<String> {
+    if !source.contains("GitHub (") {
+        anyhow::bail!("Source is not a GitHub repository: {}", source);
+    }
+
+    // Find the content between "GitHub (" and ")"
+    let start = source.find("GitHub (").unwrap() + 8; // Length of "GitHub ("
+    let remaining = &source[start..];
+
+    if let Some(end) = remaining.find(')') {
+        let account_part = &remaining[..end];
+
+        // Handle organization repos: "org/account" -> extract "account"
+        if let Some(slash_pos) = account_part.find('/') {
+            let account = &account_part[slash_pos + 1..];
+            if account.is_empty() {
+                anyhow::bail!("Invalid account format in source: {}", source);
+            }
+            Ok(account.to_string())
+        } else {
+            // Personal repo: just the account name
+            if account_part.is_empty() {
+                anyhow::bail!("Invalid account format in source: {}", source);
+            }
+            Ok(account_part.to_string())
+        }
+    } else {
+        anyhow::bail!("Malformed source format: {}", source);
+    }
+}
+
+/// Safe git configuration scope - prevents global modifications
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitConfigScope {
+    /// Repository-local configuration only (safe)
+    Local,
+    /// Read-only access to global configuration (safe for reading)
+    GlobalReadOnly,
+}
+
+/// Get git configuration value for a specific key with explicit scope
+pub fn get_git_config_scoped(key: &str, scope: GitConfigScope, cwd: Option<&Path>) -> Result<String> {
+    match scope {
+        GitConfigScope::Local => {
+            let repo_path = cwd.ok_or_else(|| anyhow::anyhow!("Repository path required for local config"))?;
+            run_git_command_string(&["config", "--local", key], Some(repo_path))
+        }
+        GitConfigScope::GlobalReadOnly => {
+            run_git_command_string(&["config", "--global", key], None)
+        }
+    }
+}
+
+/// Set git configuration value for a specific key (LOCAL ONLY - safe)
+/// This function ONLY allows local repository configuration to prevent
+/// accidental modification of global git settings
+pub fn set_git_config(key: &str, value: &str, cwd: &Path) -> Result<()> {
+    // SAFETY: This function is hardcoded to only use --local flag
+    // to prevent any possibility of modifying global git configuration
+    run_git_command(&["config", "--local", key, value], Some(cwd))?;
+    Ok(())
+}
+
+/// Get git configuration value for a specific key in a repository (LOCAL ONLY)
+pub fn get_git_config(key: &str, cwd: &Path) -> Result<String> {
+    get_git_config_scoped(key, GitConfigScope::Local, Some(cwd))
+}
+
+/// Get git configuration value from global config (READ-ONLY)
+/// This function is explicitly marked as read-only to emphasize that
+/// viewyard NEVER modifies global git configuration
+pub fn get_global_git_config(key: &str) -> Result<String> {
+    get_git_config_scoped(key, GitConfigScope::GlobalReadOnly, None)
+}
+
+/// Detect available signing key from global git configuration
+#[must_use]
+pub fn detect_signing_key() -> Option<String> {
+    // Try to get signing key from global config
+    if let Ok(signing_key) = get_global_git_config("user.signingkey") {
+        if !signing_key.trim().is_empty() {
+            return Some(signing_key.trim().to_string());
+        }
+    }
+    None
+}
+
+/// Validate and configure git user settings for a repository
+pub fn validate_and_configure_git_user(repo_path: &Path, account: &str) -> Result<()> {
+    // Check current configuration
+    let current_name = get_git_config("user.name", repo_path).ok();
+    let current_email = get_git_config("user.email", repo_path).ok();
+    let current_signing_key = get_git_config("user.signingkey", repo_path).ok();
+
+    let expected_email = format!("{account}@users.noreply.github.com");
+
+    // Configure user.name if not set or incorrect
+    let name_configured = if current_name.as_deref() == Some(account) {
+        false
+    } else {
+        set_git_config("user.name", account, repo_path)
+            .with_context(|| format!("Failed to set user.name to '{account}'"))?;
+        true
+    };
+
+    // Configure user.email if not set or incorrect
+    let email_configured = if current_email.as_deref() == Some(&expected_email) {
+        false
+    } else {
+        set_git_config("user.email", &expected_email, repo_path)
+            .with_context(|| format!("Failed to set user.email to '{expected_email}'"))?;
+        true
+    };
+
+    // Configure signing key if available and not already set
+    let signing_key_configured = if let Some(global_signing_key) = detect_signing_key() {
+        if current_signing_key.as_deref() == Some(&global_signing_key) {
+            false
+        } else {
+            set_git_config("user.signingkey", &global_signing_key, repo_path).with_context(
+                || format!("Failed to set user.signingkey to '{global_signing_key}'"),
+            )?;
+            true
+        }
+    } else {
+        false
+    };
+
+    // Provide feedback about what was configured
+    if name_configured || email_configured || signing_key_configured {
+        use crate::ui;
+        let mut config_parts = vec![format!("{account} <{expected_email}>")];
+
+        if signing_key_configured {
+            if let Some(signing_key) = detect_signing_key() {
+                // Show a shortened version of the signing key for readability
+                let key_display = if signing_key.len() > 20 {
+                    format!("{}...", &signing_key[..20])
+                } else {
+                    signing_key
+                };
+                config_parts.push(format!("signing: {key_display}"));
+            }
+        }
+
+        ui::print_info(&format!(
+            "🔧 Configured git user: {}",
+            config_parts.join(", ")
+        ));
+    }
+
+    Ok(())
+}
+
+/// Comprehensive validation for git repository and user configuration
+/// This function should be called before any git operations in workspace commands
+pub fn validate_repository_for_operations(
+    repo_path: &Path,
+    repo: &crate::models::Repository,
+) -> Result<()> {
+    // 1. Verify this is actually a git repository
+    if !is_git_repo(repo_path) {
+        anyhow::bail!(
+            "Directory '{}' is not a git repository (missing .git directory)",
+            repo.name
+        );
+    }
+
+    // 2. Determine account - prefer explicit account field, fall back to source parsing
+    let account = if let Some(ref explicit_account) = repo.account {
+        explicit_account.clone()
+    } else {
+        extract_account_from_source(&repo.source).with_context(|| {
+            format!(
+                "Failed to extract GitHub account from source: {}",
+                repo.source
+            )
+        })?
+    };
+
+    // 3. Validate and configure git user settings
+    validate_and_configure_git_user(repo_path, &account)
+        .with_context(|| format!("Failed to configure git user for repository: {}", repo.name))?;
+
+    Ok(())
+}
+
+/// Validate that a directory exists and is accessible
+pub fn validate_repository_directory(repo_path: &Path, repo_name: &str) -> Result<()> {
+    if !repo_path.exists() {
+        anyhow::bail!(
+            "Repository directory '{}' does not exist: {}",
+            repo_name,
+            repo_path.display()
+        );
+    }
+
+    if !repo_path.is_dir() {
+        anyhow::bail!(
+            "Repository path '{}' is not a directory: {}",
+            repo_name,
+            repo_path.display()
+        );
+    }
+
+    Ok(())
 }

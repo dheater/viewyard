@@ -191,6 +191,7 @@ impl GitHubService {
                     url: url.to_string(),
                     is_private,
                     source: format!("GitHub ({account}){privacy_indicator}"),
+                    account: Some(account.to_string()),
                 });
             }
         }
@@ -288,6 +289,7 @@ impl GitHubService {
                     url: url.to_string(),
                     is_private,
                     source: format!("GitHub ({org}/{account}){privacy_indicator}"),
+                    account: Some(account.to_string()),
                 });
             }
         }

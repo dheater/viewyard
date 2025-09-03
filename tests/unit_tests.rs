@@ -8,6 +8,7 @@ fn test_repository_creation() {
         url: "https://github.com/test/repo.git".to_string(),
         is_private: false,
         source: "GitHub (test)".to_string(),
+        account: None,
     };
 
     assert_eq!(repo.name, "test-repo");
@@ -25,12 +26,14 @@ fn test_repository_search_fuzzy_matching() {
             url: "https://github.com/test/my-awesome-project.git".to_string(),
             is_private: false,
             source: "GitHub (test)".to_string(),
+            account: None,
         },
         Repository {
             name: "another-project".to_string(),
             url: "https://github.com/test/another-project.git".to_string(),
             is_private: false,
             source: "GitHub (test)".to_string(),
+            account: None,
         },
     ];
 
@@ -49,12 +52,14 @@ fn test_repository_search_empty_query() {
             url: "https://github.com/test/repo1.git".to_string(),
             is_private: false,
             source: "GitHub (test)".to_string(),
+            account: None,
         },
         Repository {
             name: "repo2".to_string(),
             url: "https://github.com/test/repo2.git".to_string(),
             is_private: false,
             source: "GitHub (test)".to_string(),
+            account: None,
         },
     ];
 
@@ -72,18 +77,21 @@ fn test_repository_grouping_by_source() {
             url: "https://github.com/user/repo1.git".to_string(),
             is_private: false,
             source: "GitHub (user)".to_string(),
+            account: None,
         },
         Repository {
             name: "repo2".to_string(),
             url: "https://github.com/user/repo2.git".to_string(),
             is_private: false,
             source: "GitHub (user)".to_string(),
+            account: None,
         },
         Repository {
             name: "repo3".to_string(),
             url: "https://github.com/org/repo3.git".to_string(),
             is_private: false,
             source: "GitHub (org/user)".to_string(),
+            account: None,
         },
     ];
 
@@ -103,6 +111,7 @@ fn test_repository_private_flag() {
         url: "https://github.com/user/private-repo.git".to_string(),
         is_private: true,
         source: "GitHub (user) [private]".to_string(),
+        account: None,
     };
 
     let public_repo = Repository {
@@ -110,6 +119,7 @@ fn test_repository_private_flag() {
         url: "https://github.com/user/public-repo.git".to_string(),
         is_private: false,
         source: "GitHub (user)".to_string(),
+        account: None,
     };
 
     assert!(private_repo.is_private);
@@ -127,18 +137,21 @@ fn test_repository_search_scoring() {
             url: "https://github.com/test/exact-match.git".to_string(),
             is_private: false,
             source: "GitHub (test)".to_string(),
+            account: None,
         },
         Repository {
             name: "partial-exact-match".to_string(),
             url: "https://github.com/test/partial-exact-match.git".to_string(),
             is_private: false,
             source: "GitHub (test)".to_string(),
+            account: None,
         },
         Repository {
             name: "no-match-here".to_string(),
             url: "https://github.com/test/no-match-here.git".to_string(),
             is_private: false,
             source: "GitHub (test)".to_string(),
+            account: None,
         },
     ];
 
@@ -164,6 +177,7 @@ fn test_repository_search_no_matches() {
         url: "https://github.com/test/repo1.git".to_string(),
         is_private: false,
         source: "GitHub (test)".to_string(),
+        account: None,
     }];
 
     let results = search.search(&repos, "nonexistent");
@@ -186,6 +200,7 @@ fn test_repository_search_with_large_dataset() {
             } else {
                 "GitHub (org/user)".to_string()
             },
+            account: None,
         });
     }
 
@@ -195,6 +210,7 @@ fn test_repository_search_with_large_dataset() {
         url: "https://github.com/test/special-project.git".to_string(),
         is_private: false,
         source: "GitHub (user)".to_string(),
+        account: None,
     });
 
     let results = search.search(&repos, "special");

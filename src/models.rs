@@ -7,6 +7,8 @@ pub struct Repository {
     pub url: String,
     pub is_private: bool,
     pub source: String, // e.g., "GitHub (username)" or "GitHub (org/username)"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>, // Optional explicit account field for git user configuration
 }
 
 impl fmt::Display for Repository {

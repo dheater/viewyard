@@ -124,14 +124,19 @@ fn workspace_status() -> Result<()> {
     for repo in &view_context.active_repos {
         let repo_path = view_context.view_root.join(&repo.name);
 
-        if !repo_path.exists() {
-            ui::print_warning(&format!("⚠️  {}: Directory not found", repo.name));
+        // Validate directory exists
+        if let Err(e) = git::validate_repository_directory(&repo_path, &repo.name) {
+            ui::print_warning(&format!("⚠️  {}: {}", repo.name, e));
             continue;
         }
 
-        if !git::is_git_repo(&repo_path) {
-            ui::print_warning(&format!("⚠️  {}: Not a git repository", repo.name));
-            continue;
+        // Validate git repository and user configuration (but don't fail on config issues for status)
+        if let Err(e) = git::validate_repository_for_operations(&repo_path, repo) {
+            ui::print_warning(&format!(
+                "⚠️  {}: Git configuration issue - {}",
+                repo.name, e
+            ));
+            // Continue with status check even if git config has issues
         }
 
         // Get branch for consistency check
@@ -178,15 +183,19 @@ fn workspace_rebase() -> Result<()> {
     let mut error_repos = Vec::new();
     let mut repos_to_rebase = Vec::new();
 
-    // First pass: identify repos that exist and are git repositories
+    // First pass: validate repositories and git configuration
     for repo in &view_context.active_repos {
         let repo_path = view_context.view_root.join(&repo.name);
 
-        if !repo_path.exists() || !git::is_git_repo(&repo_path) {
-            ui::print_warning(&format!(
-                "⚠️  {}: Directory not found or not a git repository",
-                repo.name
-            ));
+        // Validate directory exists
+        if let Err(e) = git::validate_repository_directory(&repo_path, &repo.name) {
+            ui::print_warning(&format!("⚠️  {}: {}", repo.name, e));
+            continue;
+        }
+
+        // Validate git repository and user configuration
+        if let Err(e) = git::validate_repository_for_operations(&repo_path, repo) {
+            ui::print_warning(&format!("⚠️  {}: {}", repo.name, e));
             continue;
         }
 
@@ -254,15 +263,19 @@ fn workspace_commit_all(message: &str) -> Result<()> {
     let mut committed_repos = Vec::new();
     let mut repos_to_commit = Vec::new();
 
-    // First pass: identify repos that need committing
+    // First pass: validate repositories and identify repos that need committing
     for repo in &view_context.active_repos {
         let repo_path = view_context.view_root.join(&repo.name);
 
-        if !repo_path.exists() || !git::is_git_repo(&repo_path) {
-            ui::print_warning(&format!(
-                "⚠️  {}: Directory not found or not a git repository",
-                repo.name
-            ));
+        // Validate directory exists
+        if let Err(e) = git::validate_repository_directory(&repo_path, &repo.name) {
+            ui::print_warning(&format!("⚠️  {}: {}", repo.name, e));
+            continue;
+        }
+
+        // Validate git repository and user configuration
+        if let Err(e) = git::validate_repository_for_operations(&repo_path, repo) {
+            ui::print_warning(&format!("⚠️  {}: {}", repo.name, e));
             continue;
         }
 
@@ -418,15 +431,19 @@ fn workspace_push_all() -> Result<()> {
     let mut pushed_repos = Vec::new();
     let mut repos_to_push = Vec::new();
 
-    // First pass: identify repos that need pushing
+    // First pass: validate repositories and identify repos that need pushing
     for repo in &view_context.active_repos {
         let repo_path = view_context.view_root.join(&repo.name);
 
-        if !repo_path.exists() || !git::is_git_repo(&repo_path) {
-            ui::print_warning(&format!(
-                "⚠️  {}: Directory not found or not a git repository",
-                repo.name
-            ));
+        // Validate directory exists
+        if let Err(e) = git::validate_repository_directory(&repo_path, &repo.name) {
+            ui::print_warning(&format!("⚠️  {}: {}", repo.name, e));
+            continue;
+        }
+
+        // Validate git repository and user configuration
+        if let Err(e) = git::validate_repository_for_operations(&repo_path, repo) {
+            ui::print_warning(&format!("⚠️  {}: {}", repo.name, e));
             continue;
         }
 

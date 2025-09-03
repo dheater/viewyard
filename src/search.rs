@@ -94,6 +94,7 @@ mod tests {
             url: format!("https://github.com/test/{name}"),
             is_private: false,
             source: source.to_string(),
+            account: None,
         }
     }
 

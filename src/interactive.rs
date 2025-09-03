@@ -278,18 +278,21 @@ mod tests {
                 url: "git@github.com:user/repo1.git".to_string(),
                 is_private: false,
                 source: "GitHub (user)".to_string(),
+                account: None,
             },
             Repository {
                 name: "repo2".to_string(),
                 url: "git@github.com:user/repo2.git".to_string(),
                 is_private: false,
                 source: "GitHub (user)".to_string(),
+                account: None,
             },
             Repository {
                 name: "repo3".to_string(),
                 url: "git@github.com:user/repo3.git".to_string(),
                 is_private: false,
                 source: "GitHub (user)".to_string(),
+                account: None,
             },
         ]
     }
