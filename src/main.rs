@@ -160,7 +160,7 @@ fn handle_view_command(action: ViewCommand) -> Result<()> {
 }
 
 fn create_viewset(name: &str, account: Option<&str>) -> Result<()> {
-    ui::print_info(&format!("📦 Creating viewset: {name}"));
+    ui::print_info(&format!("Creating viewset: {name}"));
 
     // Check if git is available
     git::check_git_availability()?;
@@ -201,7 +201,7 @@ fn create_viewset(name: &str, account: Option<&str>) -> Result<()> {
     }
 
     // Discover repositories
-    ui::print_info("🔍 Discovering repositories from GitHub...");
+    ui::print_info("Discovering repositories from GitHub...");
 
     let repositories = if let Some(specific_account) = account {
         GitHubService::discover_repositories_from_account(specific_account)?
@@ -257,7 +257,7 @@ fn create_viewset(name: &str, account: Option<&str>) -> Result<()> {
     std::fs::write(&repos_file, repos_json)?;
 
     ui::print_success(&format!(
-        "🎉 Viewset '{}' created successfully with {} repositories!",
+        "Viewset '{}' created successfully with {} repositories!",
         name,
         selected_repos.len()
     ));
@@ -268,7 +268,7 @@ fn create_viewset(name: &str, account: Option<&str>) -> Result<()> {
 }
 
 fn create_view(view_name: &str) -> Result<()> {
-    ui::print_info(&format!("🌿 Creating view: {view_name}"));
+    ui::print_info(&format!("Creating view: {view_name}"));
 
     // Check if git is available
     git::check_git_availability()?;
@@ -323,7 +323,7 @@ fn create_view(view_name: &str) -> Result<()> {
     ));
 
     // Clone repositories and create/checkout branches to temporary directory
-    ui::print_info("📥 Cloning repositories and setting up branches...");
+    ui::print_info("Cloning repositories and setting up branches...");
 
     // Track success for cleanup on failure
 
@@ -339,11 +339,11 @@ fn create_view(view_name: &str) -> Result<()> {
             }
             Err(e) => {
                 // Cleanup temporary directory on any failure
-                ui::print_error(&format!("❌ Failed to setup {}: {}", repo.name, e));
-                ui::print_info("🧹 Cleaning up temporary files...");
+                ui::print_error(&format!("Failed to setup {}: {}", repo.name, e));
+                ui::print_info("Cleaning up temporary files...");
                 if let Err(cleanup_err) = std::fs::remove_dir_all(&temp_view_path) {
                     ui::print_warning(&format!(
-                        "⚠️  Failed to cleanup temporary directory: {cleanup_err}"
+                        "Failed to cleanup temporary directory: {cleanup_err}"
                     ));
                 }
                 return Err(e.context(format!("Failed to setup repository '{}'", repo.name)));
@@ -355,7 +355,7 @@ fn create_view(view_name: &str) -> Result<()> {
     std::fs::rename(&temp_view_path, &view_path).context("Failed to finalize view creation")?;
 
     ui::print_success(&format!(
-        "🎉 View '{}' created successfully with {} repositories!",
+        "View '{}' created successfully with {} repositories!",
         view_name,
         repositories.len()
     ));
@@ -418,8 +418,8 @@ fn clone_and_setup_branch(
 
         // Provide specific recovery guidance based on error type
         if stderr.contains("Permission denied") || stderr.contains("publickey") {
-            ui::print_error(&format!("❌ SSH authentication failed for {}", repo.name));
-            ui::print_info("🔑 SSH key issues detected:");
+            ui::print_error(&format!("SSH authentication failed for {}", repo.name));
+            ui::print_info("SSH key issues detected:");
             ui::print_info("   • Test SSH connection: ssh -T git@github.com");
             ui::print_info(
                 "   • Add SSH key to GitHub: gh auth refresh -h github.com -s admin:public_key",
@@ -427,8 +427,8 @@ fn clone_and_setup_branch(
             ui::print_info("   • Or use HTTPS: git config --global url.\"https://github.com/\".insteadOf git@github.com:");
             anyhow::bail!("SSH authentication failed for repository '{}'", repo.name);
         } else if stderr.contains("not found") || stderr.contains("does not exist") {
-            ui::print_error(&format!("❌ Repository not found: {}", repo.name));
-            ui::print_info("🔍 Repository access issues:");
+            ui::print_error(&format!("Repository not found: {}", repo.name));
+            ui::print_info("Repository access issues:");
             ui::print_info(&format!(
                 "   • Verify repository exists: gh repo view {}",
                 repo.name
@@ -437,15 +437,15 @@ fn clone_and_setup_branch(
             ui::print_info("   • Ensure you have access to this repository");
             anyhow::bail!("Repository '{}' not found or inaccessible", repo.name);
         } else if stderr.contains("timeout") || stderr.contains("network") {
-            ui::print_error(&format!("❌ Network timeout cloning {}", repo.name));
-            ui::print_info("🌐 Network issues detected:");
+            ui::print_error(&format!("Network timeout cloning {}", repo.name));
+            ui::print_info("Network issues detected:");
             ui::print_info("   • Check internet connection");
             ui::print_info("   • Try again in a few moments");
             ui::print_info("   • Consider using a VPN if behind corporate firewall");
             anyhow::bail!("Network timeout cloning repository '{}'", repo.name);
         } else if stderr.contains("already exists") {
-            ui::print_error(&format!("❌ Directory already exists: {}", repo.name));
-            ui::print_info("📁 Directory conflict:");
+            ui::print_error(&format!("Directory already exists: {}", repo.name));
+            ui::print_info("Directory conflict:");
             ui::print_info(&format!(
                 "   • Remove existing directory: rm -rf {}",
                 repo.name
@@ -454,15 +454,19 @@ fn clone_and_setup_branch(
             anyhow::bail!("Directory '{}' already exists", repo.name);
         }
         // Generic error with full stderr
-        ui::print_error(&format!("❌ Failed to clone {}", repo.name));
-        ui::print_info("🔧 Git clone failed:");
+        ui::print_error(&format!("Failed to clone {}", repo.name));
+        ui::print_info("Git clone failed:");
         ui::print_info(&format!("   • Error: {}", stderr.trim()));
         ui::print_info("   • Check repository URL and permissions");
         ui::print_info("   • Verify git and network connectivity");
         anyhow::bail!("Failed to clone repository '{}': {}", repo.name, stderr);
     }
 
-    ui::print_info(&format!("  ✓ Cloned {}", repo.name));
+    ui::print_info(&format!("  Cloned {}", repo.name));
+
+    // Configure git user identity for this repository
+    git::validate_repository_for_operations(&repo_path, repo)
+        .with_context(|| format!("Failed to configure git user for repository: {}", repo.name))?;
 
     // Create and checkout branch
     setup_branch_in_repo(&repo_path, branch_name)?;
@@ -495,16 +499,16 @@ fn setup_branch_in_repo(repo_path: &std::path::Path, branch_name: &str) -> Resul
 
             if stderr.contains("uncommitted changes") || stderr.contains("would be overwritten") {
                 ui::print_error(&format!(
-                    "❌ Cannot checkout branch '{branch_name}' - uncommitted changes"
+                    "Cannot checkout branch '{branch_name}' - uncommitted changes"
                 ));
-                ui::print_info("💾 Uncommitted changes detected:");
+                ui::print_info("Uncommitted changes detected:");
                 ui::print_info(&format!("   • Navigate to: cd {}", repo_path.display()));
                 ui::print_info("   • Commit changes: git add . && git commit -m \"Save work\"");
                 ui::print_info("   • Or stash changes: git stash");
                 ui::print_info("   • Then retry view creation");
             } else {
-                ui::print_error(&format!("❌ Failed to checkout branch '{branch_name}'"));
-                ui::print_info("🔧 Branch checkout failed:");
+                ui::print_error(&format!("Failed to checkout branch '{branch_name}'"));
+                ui::print_info("Branch checkout failed:");
                 ui::print_info(&format!("   • Error: {}", stderr.trim()));
                 ui::print_info(&format!(
                     "   • Check branch status: cd {} && git status",
@@ -514,7 +518,7 @@ fn setup_branch_in_repo(repo_path: &std::path::Path, branch_name: &str) -> Resul
             anyhow::bail!("Failed to checkout branch '{}': {}", branch_name, stderr);
         }
         ui::print_info(&format!(
-            "    ✓ Checked out existing branch '{branch_name}'"
+            "    Checked out existing branch '{branch_name}'"
         ));
     } else {
         // Create new branch from current default branch
@@ -528,8 +532,8 @@ fn setup_branch_in_repo(repo_path: &std::path::Path, branch_name: &str) -> Resul
             let stderr = String::from_utf8_lossy(&output.stderr);
 
             if stderr.contains("already exists") {
-                ui::print_error(&format!("❌ Branch '{branch_name}' already exists"));
-                ui::print_info("🌿 Branch conflict:");
+                ui::print_error(&format!("Branch '{branch_name}' already exists"));
+                ui::print_info("Branch conflict:");
                 ui::print_info(&format!(
                     "   • Use existing branch: git checkout {branch_name}"
                 ));
@@ -538,8 +542,8 @@ fn setup_branch_in_repo(repo_path: &std::path::Path, branch_name: &str) -> Resul
                 ));
                 ui::print_info("   • Then retry view creation");
             } else {
-                ui::print_error(&format!("❌ Failed to create branch '{branch_name}'"));
-                ui::print_info("🔧 Branch creation failed:");
+                ui::print_error(&format!("Failed to create branch '{branch_name}'"));
+                ui::print_info("Branch creation failed:");
                 ui::print_info(&format!("   • Error: {}", stderr.trim()));
                 ui::print_info(&format!(
                     "   • Check repository state: cd {} && git status",
@@ -549,7 +553,7 @@ fn setup_branch_in_repo(repo_path: &std::path::Path, branch_name: &str) -> Resul
             anyhow::bail!("Failed to create branch '{}': {}", branch_name, stderr);
         }
         ui::print_info(&format!(
-            "    ✓ Created and checked out new branch '{branch_name}'"
+            "    Created and checked out new branch '{branch_name}'"
         ));
     }
 

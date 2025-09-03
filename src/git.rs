@@ -377,7 +377,7 @@ pub fn validate_and_configure_git_user(repo_path: &Path, account: &str) -> Resul
         }
 
         ui::print_info(&format!(
-            "🔧 Configured git user: {}",
+            "Configured git user: {}",
             config_parts.join(", ")
         ));
     }
