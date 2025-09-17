@@ -333,6 +333,17 @@ fn create_view(view_name: &str) -> Result<()> {
             repo.name, view_name
         ));
 
+        // Switch to the correct GitHub account if specified
+        if let Some(ref account) = repo.account {
+            ui::print_info(&format!("    Switching to account: {}", account));
+            if let Err(e) = github::GitHubService::switch_account(account) {
+                ui::print_warning(&format!(
+                    "Failed to switch to account '{}': {}. Continuing with current account.",
+                    account, e
+                ));
+            }
+        }
+
         match clone_and_setup_branch(repo, &temp_view_path, view_name) {
             Ok(()) => {
                 // Repository cloned successfully
@@ -517,9 +528,7 @@ fn setup_branch_in_repo(repo_path: &std::path::Path, branch_name: &str) -> Resul
             }
             anyhow::bail!("Failed to checkout branch '{}': {}", branch_name, stderr);
         }
-        ui::print_info(&format!(
-            "    Checked out existing branch '{branch_name}'"
-        ));
+        ui::print_info(&format!("    Checked out existing branch '{branch_name}'"));
     } else {
         // Create new branch from current default branch
         let output = std::process::Command::new("git")
