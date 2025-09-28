@@ -612,6 +612,8 @@ fn test_view_create_sets_upstream_for_existing_branch() {
         "feature-branch"
     );
 
+
+
     let output = StdCommand::new("git")
         .args(["rev-parse", "--abbrev-ref", "@{u}"])
         .current_dir(&repo_dir)
@@ -625,5 +627,134 @@ fn test_view_create_sets_upstream_for_existing_branch() {
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
         "origin/feature-branch"
+    );
+}
+
+#[test]
+fn test_reproduce_upstream_tracking_bug() {
+    // This test specifically reproduces the scenario where a branch is created
+    // without proper upstream tracking, simulating the bug reported
+    let temp_dir = TempDir::new().unwrap();
+    let viewset_dir = temp_dir.path().join("bug-reproduction-viewset");
+    fs::create_dir_all(&viewset_dir).unwrap();
+
+    // Create a bare remote repository
+    let remote_dir = TempDir::new().unwrap();
+    let remote_path = remote_dir.path();
+
+    let output = StdCommand::new("git")
+        .args(["init", "--bare"])
+        .current_dir(remote_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    // Create a seed repository to populate the remote
+    let seed_dir = TempDir::new().unwrap();
+    let seed_path = seed_dir.path();
+    let remote_path_str = remote_path.to_str().unwrap();
+
+    // Initialize and configure seed repo
+    StdCommand::new("git").args(["init"]).current_dir(seed_path).output().unwrap();
+    StdCommand::new("git").args(["remote", "add", "origin", remote_path_str]).current_dir(seed_path).output().unwrap();
+    StdCommand::new("git").args(["config", "user.name", "Test User"]).current_dir(seed_path).output().unwrap();
+    StdCommand::new("git").args(["config", "user.email", "test@example.com"]).current_dir(seed_path).output().unwrap();
+
+    // Create initial commit and push main
+    fs::write(seed_path.join("README.md"), "# Bug Reproduction\n").unwrap();
+    StdCommand::new("git").args(["add", "README.md"]).current_dir(seed_path).output().unwrap();
+    StdCommand::new("git").args(["commit", "-m", "Initial commit"]).current_dir(seed_path).output().unwrap();
+    StdCommand::new("git").args(["branch", "-M", "main"]).current_dir(seed_path).output().unwrap();
+    StdCommand::new("git").args(["push", "-u", "origin", "main"]).current_dir(seed_path).output().unwrap();
+
+    // Create and push CLIENTS-420 branch
+    StdCommand::new("git").args(["checkout", "-b", "CLIENTS-420"]).current_dir(seed_path).output().unwrap();
+    fs::write(seed_path.join("feature.txt"), "feature\n").unwrap();
+    StdCommand::new("git").args(["add", "feature.txt"]).current_dir(seed_path).output().unwrap();
+    StdCommand::new("git").args(["commit", "-m", "Add feature"]).current_dir(seed_path).output().unwrap();
+    StdCommand::new("git").args(["push", "-u", "origin", "CLIENTS-420"]).current_dir(seed_path).output().unwrap();
+
+    // Add more commits to simulate upstream changes
+    fs::write(seed_path.join("upstream.txt"), "upstream\n").unwrap();
+    StdCommand::new("git").args(["add", "upstream.txt"]).current_dir(seed_path).output().unwrap();
+    StdCommand::new("git").args(["commit", "-m", "Upstream change"]).current_dir(seed_path).output().unwrap();
+    StdCommand::new("git").args(["push"]).current_dir(seed_path).output().unwrap();
+
+    // Set remote HEAD
+    StdCommand::new("git").args(["symbolic-ref", "HEAD", "refs/heads/main"]).current_dir(remote_path).output().unwrap();
+
+    // Create viewyard configuration
+    let repos = json!([{
+        "name": "bug-repo",
+        "url": remote_path_str,
+        "is_private": false,
+        "source": "GitHub (test-user)",
+        "account": "test-user"
+    }]);
+    fs::write(
+        viewset_dir.join(".viewyard-repos.json"),
+        serde_json::to_string_pretty(&repos).unwrap(),
+    ).unwrap();
+
+    // Create view using viewyard
+    let mut cmd = Command::cargo_bin("viewyard").unwrap();
+    cmd.arg("view").arg("create").arg("CLIENTS-420").current_dir(&viewset_dir);
+    cmd.assert().success();
+
+    let view_dir = viewset_dir.join("CLIENTS-420");
+    let repo_dir = view_dir.join("bug-repo");
+
+    // Now manually break the upstream tracking to simulate the bug
+    // This simulates what might happen if the tracking setup fails
+    let output = StdCommand::new("git")
+        .args(["branch", "--unset-upstream"])
+        .current_dir(&repo_dir)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Failed to unset upstream");
+
+    // Verify upstream is not set
+    let output = StdCommand::new("git")
+        .args(["rev-parse", "--abbrev-ref", "@{u}"])
+        .current_dir(&repo_dir)
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "Upstream should not be configured");
+
+    // Now try git pull - this should fail with the exact error from the issue
+    let output = StdCommand::new("git")
+        .args(["pull"])
+        .current_dir(&repo_dir)
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    println!("git pull output: {}", stderr);
+
+    // This should reproduce the exact error message
+    assert!(
+        stderr.contains("There is no tracking information for the current branch"),
+        "Expected the specific error message about no tracking information, got: {}",
+        stderr
+    );
+
+    // Now test that the fix works - manually set upstream and try again
+    let output = StdCommand::new("git")
+        .args(["branch", "--set-upstream-to=origin/CLIENTS-420"])
+        .current_dir(&repo_dir)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Failed to set upstream manually");
+
+    // Now git pull should work
+    let output = StdCommand::new("git")
+        .args(["pull"])
+        .current_dir(&repo_dir)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git pull should work after setting upstream: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
