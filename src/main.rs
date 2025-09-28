@@ -415,11 +415,13 @@ fn clone_and_setup_branch(
     view_path: &std::path::Path,
     branch_name: &str,
 ) -> Result<()> {
-    let repo_path = view_path.join(&repo.name);
+    // Use custom directory name if specified, otherwise use repo name
+    let dir_name = repo.directory_name.as_deref().unwrap_or(&repo.name);
+    let repo_path = view_path.join(dir_name);
 
     // Clone repository (full clone for complete git functionality)
     let output = std::process::Command::new("git")
-        .args(["clone", &repo.url, &repo.name])
+        .args(["clone", &repo.url, dir_name])
         .current_dir(view_path)
         .output()
         .context("Failed to execute git clone")?;
@@ -455,14 +457,14 @@ fn clone_and_setup_branch(
             ui::print_info("   • Consider using a VPN if behind corporate firewall");
             anyhow::bail!("Network timeout cloning repository '{}'", repo.name);
         } else if stderr.contains("already exists") {
-            ui::print_error(&format!("Directory already exists: {}", repo.name));
+            ui::print_error(&format!("Directory already exists: {}", dir_name));
             ui::print_info("Directory conflict:");
             ui::print_info(&format!(
                 "   • Remove existing directory: rm -rf {}",
-                repo.name
+                dir_name
             ));
             ui::print_info("   • Or choose a different view name");
-            anyhow::bail!("Directory '{}' already exists", repo.name);
+            anyhow::bail!("Directory '{}' already exists", dir_name);
         }
         // Generic error with full stderr
         ui::print_error(&format!("Failed to clone {}", repo.name));
@@ -486,6 +488,8 @@ fn clone_and_setup_branch(
 }
 
 fn setup_branch_in_repo(repo_path: &std::path::Path, branch_name: &str) -> Result<()> {
+    let remote_branch_exists = remote_branch_exists(repo_path, branch_name)?;
+
     // Check if branch already exists
     let check_output = std::process::Command::new("git")
         .args(["branch", "--list", branch_name])
@@ -530,12 +534,21 @@ fn setup_branch_in_repo(repo_path: &std::path::Path, branch_name: &str) -> Resul
         }
         ui::print_info(&format!("    Checked out existing branch '{branch_name}'"));
     } else {
-        // Create new branch from current default branch
-        let output = std::process::Command::new("git")
-            .args(["checkout", "-b", branch_name])
-            .current_dir(repo_path)
-            .output()
-            .context("Failed to create new branch")?;
+        let output = if remote_branch_exists {
+            let remote_ref = format!("origin/{branch_name}");
+            std::process::Command::new("git")
+                .args(["checkout", "--track", remote_ref.as_str()])
+                .current_dir(repo_path)
+                .output()
+                .context("Failed to checkout remote branch")?
+        } else {
+            // Create new branch from current default branch
+            std::process::Command::new("git")
+                .args(["checkout", "-b", branch_name])
+                .current_dir(repo_path)
+                .output()
+                .context("Failed to create new branch")?
+        };
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -564,6 +577,62 @@ fn setup_branch_in_repo(repo_path: &std::path::Path, branch_name: &str) -> Resul
         ui::print_info(&format!(
             "    Created and checked out new branch '{branch_name}'"
         ));
+    }
+
+    ensure_branch_tracks_remote(repo_path, branch_name, remote_branch_exists)?;
+
+    Ok(())
+}
+
+fn remote_branch_exists(repo_path: &std::path::Path, branch_name: &str) -> Result<bool> {
+    let remote_ref = format!("origin/{branch_name}");
+    let output = std::process::Command::new("git")
+        .args(["branch", "-r", "--list", remote_ref.as_str()])
+        .current_dir(repo_path)
+        .output()
+        .context("Failed to check for remote branch")?;
+
+    Ok(!String::from_utf8_lossy(&output.stdout).trim().is_empty())
+}
+
+fn ensure_branch_tracks_remote(
+    repo_path: &std::path::Path,
+    branch_name: &str,
+    remote_branch_exists: bool,
+) -> Result<()> {
+    let upstream_check = std::process::Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "@{u}"])
+        .current_dir(repo_path)
+        .output()
+        .context("Failed to determine branch upstream configuration")?;
+
+    if upstream_check.status.success() {
+        return Ok(());
+    }
+
+    if !remote_branch_exists {
+        return Ok(());
+    }
+
+    let remote_ref = format!("origin/{branch_name}");
+    let output = std::process::Command::new("git")
+        .args([
+            "branch",
+            "--set-upstream-to",
+            remote_ref.as_str(),
+            branch_name,
+        ])
+        .current_dir(repo_path)
+        .output()
+        .context("Failed to set branch upstream tracking")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "Failed to set upstream for branch '{}': {}",
+            branch_name,
+            stderr.trim()
+        );
     }
 
     Ok(())

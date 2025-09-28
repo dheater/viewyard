@@ -80,3 +80,10 @@ cargo test test_name
 - Review test coverage when adding new features
 - Ensure integration tests reflect actual user workflows
 - Keep tests fast and deterministic
+
+## Constraints for writing tests
+
+ CRITICAL: Do not commit or push anything from tests to upstream Github repos.
+- Only use disposible local repos.
+- Change git origins to point to these local repose for testing.
+- Do not make changes to the global git configuration.

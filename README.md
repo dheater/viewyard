@@ -142,6 +142,16 @@ EOF
 viewyard view create feature-123
 ```
 
+Optional fields:
+
+- `"account"`: override the GitHub identity used when configuring repo-local
+  git settings.
+- `"directory_name"`: change the name of the local clone directory while still
+  pointing at the same upstream repository. Use this sparingly—most teams stick
+  with repository names, but it can help when two repos would otherwise collide
+  (for example, `frontend-app` and `frontend-design` both exposing a `frontend`
+  folder). When omitted, Viewyard clones into a directory matching `name`.
+
 ## 📚 Documentation
 
 - **[Installation & Setup](INSTALL.md)** - Prerequisites, GitHub CLI setup, troubleshooting

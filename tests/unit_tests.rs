@@ -9,6 +9,7 @@ fn test_repository_creation() {
         is_private: false,
         source: "GitHub (test)".to_string(),
         account: None,
+        directory_name: None,
     };
 
     assert_eq!(repo.name, "test-repo");
@@ -27,6 +28,7 @@ fn test_repository_search_fuzzy_matching() {
             is_private: false,
             source: "GitHub (test)".to_string(),
             account: None,
+            directory_name: None,
         },
         Repository {
             name: "another-project".to_string(),
@@ -34,6 +36,7 @@ fn test_repository_search_fuzzy_matching() {
             is_private: false,
             source: "GitHub (test)".to_string(),
             account: None,
+            directory_name: None,
         },
     ];
 
@@ -53,6 +56,7 @@ fn test_repository_search_empty_query() {
             is_private: false,
             source: "GitHub (test)".to_string(),
             account: None,
+            directory_name: None,
         },
         Repository {
             name: "repo2".to_string(),
@@ -60,6 +64,7 @@ fn test_repository_search_empty_query() {
             is_private: false,
             source: "GitHub (test)".to_string(),
             account: None,
+            directory_name: None,
         },
     ];
 
@@ -78,6 +83,7 @@ fn test_repository_grouping_by_source() {
             is_private: false,
             source: "GitHub (user)".to_string(),
             account: None,
+            directory_name: None,
         },
         Repository {
             name: "repo2".to_string(),
@@ -85,6 +91,7 @@ fn test_repository_grouping_by_source() {
             is_private: false,
             source: "GitHub (user)".to_string(),
             account: None,
+            directory_name: None,
         },
         Repository {
             name: "repo3".to_string(),
@@ -92,6 +99,7 @@ fn test_repository_grouping_by_source() {
             is_private: false,
             source: "GitHub (org/user)".to_string(),
             account: None,
+            directory_name: None,
         },
     ];
 
@@ -112,6 +120,7 @@ fn test_repository_private_flag() {
         is_private: true,
         source: "GitHub (user) [private]".to_string(),
         account: None,
+        directory_name: None,
     };
 
     let public_repo = Repository {
@@ -120,6 +129,7 @@ fn test_repository_private_flag() {
         is_private: false,
         source: "GitHub (user)".to_string(),
         account: None,
+        directory_name: None,
     };
 
     assert!(private_repo.is_private);
@@ -138,6 +148,7 @@ fn test_repository_search_scoring() {
             is_private: false,
             source: "GitHub (test)".to_string(),
             account: None,
+            directory_name: None,
         },
         Repository {
             name: "partial-exact-match".to_string(),
@@ -145,6 +156,7 @@ fn test_repository_search_scoring() {
             is_private: false,
             source: "GitHub (test)".to_string(),
             account: None,
+            directory_name: None,
         },
         Repository {
             name: "no-match-here".to_string(),
@@ -152,6 +164,7 @@ fn test_repository_search_scoring() {
             is_private: false,
             source: "GitHub (test)".to_string(),
             account: None,
+            directory_name: None,
         },
     ];
 
@@ -178,6 +191,7 @@ fn test_repository_search_no_matches() {
         is_private: false,
         source: "GitHub (test)".to_string(),
         account: None,
+        directory_name: None,
     }];
 
     let results = search.search(&repos, "nonexistent");
@@ -201,6 +215,7 @@ fn test_repository_search_with_large_dataset() {
                 "GitHub (org/user)".to_string()
             },
             account: None,
+            directory_name: None,
         });
     }
 
@@ -211,6 +226,7 @@ fn test_repository_search_with_large_dataset() {
         is_private: false,
         source: "GitHub (user)".to_string(),
         account: None,
+        directory_name: None,
     });
 
     let results = search.search(&repos, "special");

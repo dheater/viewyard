@@ -279,6 +279,7 @@ mod tests {
                 is_private: false,
                 source: "GitHub (user)".to_string(),
                 account: None,
+                directory_name: None,
             },
             Repository {
                 name: "repo2".to_string(),
@@ -286,6 +287,7 @@ mod tests {
                 is_private: false,
                 source: "GitHub (user)".to_string(),
                 account: None,
+                directory_name: None,
             },
             Repository {
                 name: "repo3".to_string(),
@@ -293,6 +295,7 @@ mod tests {
                 is_private: false,
                 source: "GitHub (user)".to_string(),
                 account: None,
+                directory_name: None,
             },
         ]
     }

@@ -60,6 +60,14 @@ fn load_and_validate_repos(repos_file: &Path) -> Result<Vec<models::Repository>>
     Ok(repositories)
 }
 
+fn repo_directory_name(repo: &models::Repository) -> &str {
+    repo.directory_name.as_deref().unwrap_or(&repo.name)
+}
+
+fn resolve_repo_path(view_root: &Path, repo: &models::Repository) -> std::path::PathBuf {
+    view_root.join(repo_directory_name(repo))
+}
+
 #[derive(Subcommand)]
 pub enum WorkspaceCommand {
     /// Show status of all repos in current view
@@ -122,20 +130,18 @@ fn workspace_status() -> Result<()> {
     let mut ahead_count = 0;
 
     for repo in &view_context.active_repos {
-        let repo_path = view_context.view_root.join(&repo.name);
+        let repo_path = resolve_repo_path(&view_context.view_root, repo);
+        let repo_dir_name = repo_directory_name(repo);
 
         // Validate directory exists
-        if let Err(e) = git::validate_repository_directory(&repo_path, &repo.name) {
+        if let Err(e) = git::validate_repository_directory(&repo_path, repo_dir_name) {
             ui::print_warning(&format!("{}: {}", repo.name, e));
             continue;
         }
 
         // Validate git repository and user configuration (but don't fail on config issues for status)
         if let Err(e) = git::validate_repository_for_operations(&repo_path, repo) {
-            ui::print_warning(&format!(
-                "{}: Git configuration issue - {}",
-                repo.name, e
-            ));
+            ui::print_warning(&format!("{}: Git configuration issue - {}", repo.name, e));
             // Continue with status check even if git config has issues
         }
 
@@ -181,14 +187,15 @@ fn workspace_rebase() -> Result<()> {
 
     let mut rebased_repos = Vec::new();
     let mut error_repos = Vec::new();
-    let mut repos_to_rebase = Vec::new();
+    let mut repos_to_rebase: Vec<models::Repository> = Vec::new();
 
     // First pass: validate repositories and git configuration
     for repo in &view_context.active_repos {
-        let repo_path = view_context.view_root.join(&repo.name);
+        let repo_path = resolve_repo_path(&view_context.view_root, repo);
+        let repo_dir_name = repo_directory_name(repo);
 
         // Validate directory exists
-        if let Err(e) = git::validate_repository_directory(&repo_path, &repo.name) {
+        if let Err(e) = git::validate_repository_directory(&repo_path, repo_dir_name) {
             ui::print_warning(&format!("{}: {}", repo.name, e));
             continue;
         }
@@ -199,7 +206,7 @@ fn workspace_rebase() -> Result<()> {
             continue;
         }
 
-        repos_to_rebase.push(repo.name.clone());
+        repos_to_rebase.push(repo.clone());
     }
 
     if repos_to_rebase.is_empty() {
@@ -213,8 +220,9 @@ fn workspace_rebase() -> Result<()> {
     ));
 
     // Second pass: perform rebase operations
-    for repo_name in repos_to_rebase {
-        let repo_path = view_context.view_root.join(&repo_name);
+    for repo in repos_to_rebase {
+        let repo_name = repo.name.clone();
+        let repo_path = resolve_repo_path(&view_context.view_root, &repo);
 
         ui::print_info(&format!("Rebasing {repo_name}"));
 
@@ -261,14 +269,15 @@ fn workspace_commit_all(message: &str) -> Result<()> {
         load_view_context(&current_dir).with_context(|| "Failed to run 'viewyard commit-all'")?;
 
     let mut committed_repos = Vec::new();
-    let mut repos_to_commit = Vec::new();
+    let mut repos_to_commit: Vec<models::Repository> = Vec::new();
 
     // First pass: validate repositories and identify repos that need committing
     for repo in &view_context.active_repos {
-        let repo_path = view_context.view_root.join(&repo.name);
+        let repo_path = resolve_repo_path(&view_context.view_root, repo);
+        let repo_dir_name = repo_directory_name(repo);
 
         // Validate directory exists
-        if let Err(e) = git::validate_repository_directory(&repo_path, &repo.name) {
+        if let Err(e) = git::validate_repository_directory(&repo_path, repo_dir_name) {
             ui::print_warning(&format!("{}: {}", repo.name, e));
             continue;
         }
@@ -281,7 +290,7 @@ fn workspace_commit_all(message: &str) -> Result<()> {
 
         match git::has_uncommitted_changes(&repo_path) {
             Ok(true) => {
-                repos_to_commit.push(repo.name.clone());
+                repos_to_commit.push(repo.clone());
             }
             Ok(false) => {
                 // Skip clean repos silently
@@ -303,8 +312,9 @@ fn workspace_commit_all(message: &str) -> Result<()> {
     ));
 
     // Second pass: commit changes with rollback on failure
-    for repo_name in &repos_to_commit {
-        let repo_path = view_context.view_root.join(repo_name);
+    for repo in &repos_to_commit {
+        let repo_name = &repo.name;
+        let repo_path = resolve_repo_path(&view_context.view_root, repo);
 
         ui::print_info(&format!("Committing changes in {repo_name}"));
         match commit_repo_changes(&repo_path, message) {
@@ -323,9 +333,7 @@ fn workspace_commit_all(message: &str) -> Result<()> {
 
                 // Stop on first failure and inform user
                 ui::print_error("Commit operation stopped due to failure");
-                ui::print_info(
-                    "Fix the issue in the failed repository and run the command again",
-                );
+                ui::print_info("Fix the issue in the failed repository and run the command again");
                 ui::print_info(&format!(
                     "Successfully committed repositories: {}",
                     if committed_repos.is_empty() {
@@ -429,14 +437,15 @@ fn workspace_push_all() -> Result<()> {
         load_view_context(&current_dir).with_context(|| "Failed to run 'viewyard push-all'")?;
 
     let mut pushed_repos = Vec::new();
-    let mut repos_to_push = Vec::new();
+    let mut repos_to_push: Vec<models::Repository> = Vec::new();
 
     // First pass: validate repositories and identify repos that need pushing
     for repo in &view_context.active_repos {
-        let repo_path = view_context.view_root.join(&repo.name);
+        let repo_path = resolve_repo_path(&view_context.view_root, repo);
+        let repo_dir_name = repo_directory_name(repo);
 
         // Validate directory exists
-        if let Err(e) = git::validate_repository_directory(&repo_path, &repo.name) {
+        if let Err(e) = git::validate_repository_directory(&repo_path, repo_dir_name) {
             ui::print_warning(&format!("{}: {}", repo.name, e));
             continue;
         }
@@ -449,7 +458,7 @@ fn workspace_push_all() -> Result<()> {
 
         match git::has_unpushed_commits(&repo_path) {
             Ok(true) => {
-                repos_to_push.push(repo.name.clone());
+                repos_to_push.push(repo.clone());
             }
             Ok(false) => {
                 // Skip repos with nothing to push silently
@@ -474,8 +483,9 @@ fn workspace_push_all() -> Result<()> {
     ));
 
     // Second pass: push commits with failure handling
-    for repo_name in &repos_to_push {
-        let repo_path = view_context.view_root.join(repo_name);
+    for repo in &repos_to_push {
+        let repo_name = &repo.name;
+        let repo_path = resolve_repo_path(&view_context.view_root, repo);
 
         ui::print_info(&format!("Pushing commits in {repo_name}"));
         match git::push(&repo_path) {
@@ -731,15 +741,22 @@ fn validate_branch_synchronization(view_context: &ViewContext) -> Result<()> {
 
     // Check branch for each repository
     for repo in &view_context.active_repos {
-        let repo_path = view_context.view_root.join(&repo.name);
+        let repo_path = resolve_repo_path(&view_context.view_root, repo);
+        let dir_name = repo_directory_name(repo);
 
         if !repo_path.exists() {
-            errors.push(format!("Repository '{}' directory not found", repo.name));
+            errors.push(format!(
+                "Repository '{}' directory '{}' not found",
+                repo.name, dir_name
+            ));
             continue;
         }
 
         if !git::is_git_repo(&repo_path) {
-            errors.push(format!("'{}' is not a git repository", repo.name));
+            errors.push(format!(
+                "'{}' (directory '{}') is not a git repository",
+                repo.name, dir_name
+            ));
             continue;
         }
 

@@ -9,6 +9,8 @@ pub struct Repository {
     pub source: String, // e.g., "GitHub (username)" or "GitHub (org/username)"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account: Option<String>, // Optional explicit account field for git user configuration
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub directory_name: Option<String>,
 }
 
 impl fmt::Display for Repository {

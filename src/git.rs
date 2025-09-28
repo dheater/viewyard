@@ -272,10 +272,15 @@ pub enum GitConfigScope {
 }
 
 /// Get git configuration value for a specific key with explicit scope
-pub fn get_git_config_scoped(key: &str, scope: GitConfigScope, cwd: Option<&Path>) -> Result<String> {
+pub fn get_git_config_scoped(
+    key: &str,
+    scope: GitConfigScope,
+    cwd: Option<&Path>,
+) -> Result<String> {
     match scope {
         GitConfigScope::Local => {
-            let repo_path = cwd.ok_or_else(|| anyhow::anyhow!("Repository path required for local config"))?;
+            let repo_path =
+                cwd.ok_or_else(|| anyhow::anyhow!("Repository path required for local config"))?;
             run_git_command_string(&["config", "--local", key], Some(repo_path))
         }
         GitConfigScope::GlobalReadOnly => {
@@ -376,10 +381,7 @@ pub fn validate_and_configure_git_user(repo_path: &Path, account: &str) -> Resul
             }
         }
 
-        ui::print_info(&format!(
-            "Configured git user: {}",
-            config_parts.join(", ")
-        ));
+        ui::print_info(&format!("Configured git user: {}", config_parts.join(", ")));
     }
 
     Ok(())

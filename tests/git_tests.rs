@@ -227,6 +227,7 @@ fn test_validate_repository_for_operations() -> Result<()> {
         is_private: false,
         source: "GitHub (testuser)".to_string(),
         account: None,
+        directory_name: None,
     };
 
     // Test validation - should configure git user automatically
@@ -257,6 +258,7 @@ fn test_validate_repository_with_explicit_account() -> Result<()> {
         is_private: false,
         source: "GitHub (org/someuser)".to_string(),
         account: Some("explicituser".to_string()),
+        directory_name: None,
     };
 
     // Test validation - should use explicit account, not source parsing
@@ -418,12 +420,18 @@ fn test_global_config_never_modified() -> Result<()> {
         });
 
     // Assert that global config is completely unchanged
-    assert_eq!(initial_global_name, final_global_name,
-        "Global git user.name was modified! This is a critical security violation.");
-    assert_eq!(initial_global_email, final_global_email,
-        "Global git user.email was modified! This is a critical security violation.");
-    assert_eq!(initial_global_signing_key, final_global_signing_key,
-        "Global git user.signingkey was modified! This is a critical security violation.");
+    assert_eq!(
+        initial_global_name, final_global_name,
+        "Global git user.name was modified! This is a critical security violation."
+    );
+    assert_eq!(
+        initial_global_email, final_global_email,
+        "Global git user.email was modified! This is a critical security violation."
+    );
+    assert_eq!(
+        initial_global_signing_key, final_global_signing_key,
+        "Global git user.signingkey was modified! This is a critical security violation."
+    );
 
     Ok(())
 }

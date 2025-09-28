@@ -95,6 +95,7 @@ mod tests {
             is_private: false,
             source: source.to_string(),
             account: None,
+            directory_name: None,
         }
     }
 

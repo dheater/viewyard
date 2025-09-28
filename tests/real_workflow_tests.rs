@@ -1,6 +1,8 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
+use serde_json::json;
 use std::fs;
+use std::process::Command as StdCommand;
 use tempfile::TempDir;
 
 /// Real workflow integration tests
@@ -235,4 +237,393 @@ fn test_directory_without_git_repos_fails() {
     cmd.assert()
         .failure()
         .stderr(predicates::str::contains("Not in a view directory"));
+}
+
+#[test]
+fn test_view_create_with_custom_directory_name() {
+    let temp_dir = TempDir::new().unwrap();
+    let viewset_dir = temp_dir.path().join("custom-viewset");
+    fs::create_dir_all(&viewset_dir).unwrap();
+
+    // Prepare a bare remote repository with an initial commit
+    let remote_dir = TempDir::new().unwrap();
+    let remote_path = remote_dir.path();
+
+    let output = StdCommand::new("git")
+        .args(["init", "--bare"])
+        .current_dir(remote_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git init --bare failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let seed_dir = TempDir::new().unwrap();
+    let remote_path_str = remote_path.to_str().unwrap();
+    let output = StdCommand::new("git")
+        .args(["clone", remote_path_str, "."])
+        .current_dir(seed_dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git clone failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = StdCommand::new("git")
+        .args(["config", "user.name", "Test User"])
+        .current_dir(seed_dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git config user.name failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = StdCommand::new("git")
+        .args(["config", "user.email", "test@example.com"])
+        .current_dir(seed_dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git config user.email failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    fs::write(
+        seed_dir.path().join("README.md"),
+        "# Custom Directory Test\n",
+    )
+    .unwrap();
+
+    let output = StdCommand::new("git")
+        .args(["add", "README.md"])
+        .current_dir(seed_dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git add failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = StdCommand::new("git")
+        .args(["commit", "-m", "Initial commit"])
+        .current_dir(seed_dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git commit failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = StdCommand::new("git")
+        .args(["branch", "-M", "main"])
+        .current_dir(seed_dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git branch -M main failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = StdCommand::new("git")
+        .args(["push", "-u", "origin", "main"])
+        .current_dir(seed_dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git push failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = StdCommand::new("git")
+        .args(["symbolic-ref", "HEAD", "refs/heads/main"])
+        .current_dir(remote_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git symbolic-ref on remote failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Create repository configuration using a custom directory name
+    let repos = json!([
+        {
+            "name": "upstream-repo",
+            "url": remote_path_str,
+            "is_private": false,
+            "source": "GitHub (test-user)",
+            "account": "test-user",
+            "directory_name": "custom-clone"
+        }
+    ]);
+    fs::write(
+        viewset_dir.join(".viewyard-repos.json"),
+        serde_json::to_string_pretty(&repos).unwrap(),
+    )
+    .unwrap();
+
+    // Run `viewyard view create` within the viewset directory
+    let mut cmd = Command::cargo_bin("viewyard").unwrap();
+    cmd.arg("view")
+        .arg("create")
+        .arg("feature-branch")
+        .current_dir(&viewset_dir);
+
+    cmd.assert().success();
+
+    let view_dir = viewset_dir.join("feature-branch");
+    let custom_repo_dir = view_dir.join("custom-clone");
+    assert!(custom_repo_dir.is_dir(), "custom directory was not created");
+    assert!(
+        !view_dir.join("upstream-repo").exists(),
+        "repository should not exist under its original name"
+    );
+
+    let output = StdCommand::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(&custom_repo_dir)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git rev-parse failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "feature-branch"
+    );
+
+    let output = StdCommand::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(&custom_repo_dir)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git remote get-url failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        remote_path_str
+    );
+}
+
+#[test]
+fn test_view_create_sets_upstream_for_existing_branch() {
+    let temp_dir = TempDir::new().unwrap();
+    let viewset_dir = temp_dir.path().join("upstream-viewset");
+    fs::create_dir_all(&viewset_dir).unwrap();
+
+    // Prepare a bare remote repository with an existing feature branch
+    let remote_dir = TempDir::new().unwrap();
+    let remote_path = remote_dir.path();
+
+    let output = StdCommand::new("git")
+        .args(["init", "--bare"])
+        .current_dir(remote_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git init --bare failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let seed_dir = TempDir::new().unwrap();
+    let seed_path = seed_dir.path();
+    let remote_path_str = remote_path.to_str().unwrap();
+
+    let output = StdCommand::new("git")
+        .args(["init"])
+        .current_dir(seed_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git init failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = StdCommand::new("git")
+        .args(["remote", "add", "origin", remote_path_str])
+        .current_dir(seed_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git remote add failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = StdCommand::new("git")
+        .args(["config", "user.name", "Test User"])
+        .current_dir(seed_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git config user.name failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = StdCommand::new("git")
+        .args(["config", "user.email", "test@example.com"])
+        .current_dir(seed_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git config user.email failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    fs::write(seed_path.join("README.md"), "# Upstream Test\n").unwrap();
+
+    let output = StdCommand::new("git")
+        .args(["add", "README.md"])
+        .current_dir(seed_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git add failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = StdCommand::new("git")
+        .args(["commit", "-m", "Initial commit"])
+        .current_dir(seed_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git commit failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = StdCommand::new("git")
+        .args(["branch", "-M", "main"])
+        .current_dir(seed_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git branch -M main failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = StdCommand::new("git")
+        .args(["push", "-u", "origin", "main"])
+        .current_dir(seed_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git push main failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = StdCommand::new("git")
+        .args(["checkout", "-b", "feature-branch"])
+        .current_dir(seed_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git checkout -b feature-branch failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = StdCommand::new("git")
+        .args(["push", "-u", "origin", "feature-branch"])
+        .current_dir(seed_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git push feature-branch failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = StdCommand::new("git")
+        .args(["symbolic-ref", "HEAD", "refs/heads/main"])
+        .current_dir(remote_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git symbolic-ref on remote failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Create repository configuration
+    let repos = json!([
+        {
+            "name": "upstream-repo",
+            "url": remote_path_str,
+            "is_private": false,
+            "source": "GitHub (test-user)",
+            "account": "test-user"
+        }
+    ]);
+    fs::write(
+        viewset_dir.join(".viewyard-repos.json"),
+        serde_json::to_string_pretty(&repos).unwrap(),
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("viewyard").unwrap();
+    cmd.arg("view")
+        .arg("create")
+        .arg("feature-branch")
+        .current_dir(&viewset_dir);
+
+    cmd.assert().success();
+
+    let view_dir = viewset_dir.join("feature-branch");
+    let repo_dir = view_dir.join("upstream-repo");
+    assert!(repo_dir.is_dir(), "repository directory missing");
+
+    let output = StdCommand::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(&repo_dir)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git rev-parse failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "feature-branch"
+    );
+
+    let output = StdCommand::new("git")
+        .args(["rev-parse", "--abbrev-ref", "@{u}"])
+        .current_dir(&repo_dir)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "expected branch to have upstream but command failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "origin/feature-branch"
+    );
 }

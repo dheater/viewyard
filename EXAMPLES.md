@@ -100,6 +100,15 @@ EOF
 viewyard view create feature-123
 ```
 
+Advanced fields you can add per repository:
+
+- `"account"`: pick a specific GitHub identity for git config inside that
+  repository.
+- `"directory_name"`: override the on-disk folder name used during cloning.
+  This is useful when two repositories share the same base name or when you
+  want clearer local naming, while still pushing/pulling from the original
+  remote. Leave it out to keep the default of cloning into `name`.
+
 ### Automation & Scripting
 ```bash
 # Generate configurations programmatically
