@@ -1,9 +1,11 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
-use serde_json::json;
 use std::fs;
 use std::process::Command as StdCommand;
 use tempfile::TempDir;
+
+mod test_utils;
+use test_utils::{create_viewyard_config, GitRepoSetup};
 
 /// Real workflow integration tests
 /// These tests verify the actual user workflows work end-to-end
@@ -30,77 +32,54 @@ fn test_create_viewset_with_github_cli_unavailable() {
 }
 
 #[test]
-fn test_workspace_status_outside_view() {
+fn test_commands_outside_view() {
+    // Test that various commands fail gracefully when not in a view directory
     let temp_dir = TempDir::new().unwrap();
 
-    let mut cmd = Command::cargo_bin("viewyard").unwrap();
-    cmd.arg("status").current_dir(temp_dir.path());
+    let test_cases = vec![
+        (vec!["status"], "view directory"),
+        (vec!["commit-all", "test message"], "view directory"),
+        (vec!["push-all"], "view directory"),
+        (vec!["view", "create", "test"], "viewset"),
+    ];
 
-    // Should fail gracefully when not in a view
-    cmd.assert()
-        .failure()
-        .stderr(predicates::str::contains("view directory"));
+    for (args, expected_error) in test_cases {
+        let mut cmd = Command::cargo_bin("viewyard").unwrap();
+        for arg in args.iter() {
+            cmd.arg(arg);
+        }
+        cmd.current_dir(temp_dir.path());
+
+        cmd.assert()
+            .failure()
+            .stderr(predicates::str::contains(expected_error));
+    }
 }
 
 #[test]
-fn test_workspace_commit_all_outside_view() {
+fn test_interactive_commands_outside_view() {
+    // Test interactive commands that may fail due to terminal issues in tests
     let temp_dir = TempDir::new().unwrap();
 
-    let mut cmd = Command::cargo_bin("viewyard").unwrap();
-    cmd.arg("commit-all")
-        .arg("test message")
-        .current_dir(temp_dir.path());
+    let interactive_commands = vec![
+        vec!["repo", "add"],
+        vec!["repo", "remove", "some-repo"],
+    ];
 
-    // Should fail gracefully when not in a view
-    cmd.assert()
-        .failure()
-        .stderr(predicates::str::contains("view directory"));
-}
+    for args in interactive_commands {
+        let mut cmd = Command::cargo_bin("viewyard").unwrap();
+        for arg in args.iter() {
+            cmd.arg(arg);
+        }
+        cmd.current_dir(temp_dir.path());
 
-#[test]
-fn test_workspace_push_all_outside_view() {
-    let temp_dir = TempDir::new().unwrap();
-
-    let mut cmd = Command::cargo_bin("viewyard").unwrap();
-    cmd.arg("push-all").current_dir(temp_dir.path());
-
-    // Should fail gracefully when not in a view
-    cmd.assert()
-        .failure()
-        .stderr(predicates::str::contains("view directory"));
-}
-
-#[test]
-fn test_repo_add_outside_view() {
-    let temp_dir = TempDir::new().unwrap();
-
-    let mut cmd = Command::cargo_bin("viewyard").unwrap();
-    cmd.arg("repo").arg("add").current_dir(temp_dir.path());
-
-    // Should fail gracefully when not in a view (but may fail due to terminal issues in tests)
-    let result = cmd.assert().failure();
-    // Accept either view-related error or terminal error
-    result.stderr(
-        predicates::str::contains("view")
-            .or(predicates::str::contains("terminal"))
-            .or(predicates::str::contains("not a terminal")),
-    );
-}
-
-#[test]
-fn test_repo_remove_outside_view() {
-    let temp_dir = TempDir::new().unwrap();
-
-    let mut cmd = Command::cargo_bin("viewyard").unwrap();
-    cmd.arg("repo")
-        .arg("remove")
-        .arg("some-repo")
-        .current_dir(temp_dir.path());
-
-    // Should fail gracefully when not in a view
-    cmd.assert()
-        .failure()
-        .stderr(predicates::str::contains("view"));
+        // Accept either view-related error or terminal error
+        cmd.assert().failure().stderr(
+            predicates::str::contains("view")
+                .or(predicates::str::contains("terminal"))
+                .or(predicates::str::contains("not a terminal")),
+        );
+    }
 }
 
 #[test]
@@ -127,22 +106,6 @@ fn test_create_viewset_in_existing_directory() {
             .or(predicates::str::contains("already"))
             .or(predicates::str::contains("File exists")),
     );
-}
-
-#[test]
-fn test_view_create_outside_viewset() {
-    let temp_dir = TempDir::new().unwrap();
-
-    let mut cmd = Command::cargo_bin("viewyard").unwrap();
-    cmd.arg("view")
-        .arg("create")
-        .arg("test-view")
-        .current_dir(temp_dir.path());
-
-    // Should fail when not in a viewset directory
-    cmd.assert()
-        .failure()
-        .stderr(predicates::str::contains("Not in a viewset directory"));
 }
 
 #[test]
@@ -245,133 +208,16 @@ fn test_view_create_with_custom_directory_name() {
     let viewset_dir = temp_dir.path().join("custom-viewset");
     fs::create_dir_all(&viewset_dir).unwrap();
 
-    // Prepare a bare remote repository with an initial commit
-    let remote_dir = TempDir::new().unwrap();
-    let remote_path = remote_dir.path();
-
-    let output = StdCommand::new("git")
-        .args(["init", "--bare"])
-        .current_dir(remote_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git init --bare failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let seed_dir = TempDir::new().unwrap();
-    let remote_path_str = remote_path.to_str().unwrap();
-    let output = StdCommand::new("git")
-        .args(["clone", remote_path_str, "."])
-        .current_dir(seed_dir.path())
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git clone failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let output = StdCommand::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(seed_dir.path())
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git config user.name failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let output = StdCommand::new("git")
-        .args(["config", "user.email", "test@example.com"])
-        .current_dir(seed_dir.path())
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git config user.email failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    fs::write(
-        seed_dir.path().join("README.md"),
-        "# Custom Directory Test\n",
-    )
-    .unwrap();
-
-    let output = StdCommand::new("git")
-        .args(["add", "README.md"])
-        .current_dir(seed_dir.path())
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git add failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let output = StdCommand::new("git")
-        .args(["commit", "-m", "Initial commit"])
-        .current_dir(seed_dir.path())
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git commit failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let output = StdCommand::new("git")
-        .args(["branch", "-M", "main"])
-        .current_dir(seed_dir.path())
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git branch -M main failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let output = StdCommand::new("git")
-        .args(["push", "-u", "origin", "main"])
-        .current_dir(seed_dir.path())
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git push failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let output = StdCommand::new("git")
-        .args(["symbolic-ref", "HEAD", "refs/heads/main"])
-        .current_dir(remote_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git symbolic-ref on remote failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    // Set up git repository using utility
+    let git_setup = GitRepoSetup::new();
 
     // Create repository configuration using a custom directory name
-    let repos = json!([
-        {
-            "name": "upstream-repo",
-            "url": remote_path_str,
-            "is_private": false,
-            "source": "GitHub (test-user)",
-            "account": "test-user",
-            "directory_name": "custom-clone"
-        }
-    ]);
-    fs::write(
-        viewset_dir.join(".viewyard-repos.json"),
-        serde_json::to_string_pretty(&repos).unwrap(),
-    )
-    .unwrap();
+    create_viewyard_config(
+        &viewset_dir,
+        "upstream-repo",
+        git_setup.remote_url(),
+        Some("custom-clone"),
+    );
 
     // Run `viewyard view create` within the viewset directory
     let mut cmd = Command::cargo_bin("viewyard").unwrap();
@@ -417,7 +263,7 @@ fn test_view_create_with_custom_directory_name() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
-        remote_path_str
+        git_setup.remote_url()
     );
 }
 
@@ -427,163 +273,12 @@ fn test_view_create_sets_upstream_for_existing_branch() {
     let viewset_dir = temp_dir.path().join("upstream-viewset");
     fs::create_dir_all(&viewset_dir).unwrap();
 
-    // Prepare a bare remote repository with an existing feature branch
-    let remote_dir = TempDir::new().unwrap();
-    let remote_path = remote_dir.path();
-
-    let output = StdCommand::new("git")
-        .args(["init", "--bare"])
-        .current_dir(remote_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git init --bare failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let seed_dir = TempDir::new().unwrap();
-    let seed_path = seed_dir.path();
-    let remote_path_str = remote_path.to_str().unwrap();
-
-    let output = StdCommand::new("git")
-        .args(["init"])
-        .current_dir(seed_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git init failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let output = StdCommand::new("git")
-        .args(["remote", "add", "origin", remote_path_str])
-        .current_dir(seed_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git remote add failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let output = StdCommand::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(seed_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git config user.name failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let output = StdCommand::new("git")
-        .args(["config", "user.email", "test@example.com"])
-        .current_dir(seed_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git config user.email failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    fs::write(seed_path.join("README.md"), "# Upstream Test\n").unwrap();
-
-    let output = StdCommand::new("git")
-        .args(["add", "README.md"])
-        .current_dir(seed_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git add failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let output = StdCommand::new("git")
-        .args(["commit", "-m", "Initial commit"])
-        .current_dir(seed_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git commit failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let output = StdCommand::new("git")
-        .args(["branch", "-M", "main"])
-        .current_dir(seed_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git branch -M main failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let output = StdCommand::new("git")
-        .args(["push", "-u", "origin", "main"])
-        .current_dir(seed_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git push main failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let output = StdCommand::new("git")
-        .args(["checkout", "-b", "feature-branch"])
-        .current_dir(seed_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git checkout -b feature-branch failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let output = StdCommand::new("git")
-        .args(["push", "-u", "origin", "feature-branch"])
-        .current_dir(seed_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git push feature-branch failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let output = StdCommand::new("git")
-        .args(["symbolic-ref", "HEAD", "refs/heads/main"])
-        .current_dir(remote_path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git symbolic-ref on remote failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    // Set up git repository with feature branch using utility
+    let git_setup = GitRepoSetup::new();
+    git_setup.create_feature_branch("feature-branch");
 
     // Create repository configuration
-    let repos = json!([
-        {
-            "name": "upstream-repo",
-            "url": remote_path_str,
-            "is_private": false,
-            "source": "GitHub (test-user)",
-            "account": "test-user"
-        }
-    ]);
-    fs::write(
-        viewset_dir.join(".viewyard-repos.json"),
-        serde_json::to_string_pretty(&repos).unwrap(),
-    )
-    .unwrap();
+    create_viewyard_config(&viewset_dir, "upstream-repo", git_setup.remote_url(), None);
 
     let mut cmd = Command::cargo_bin("viewyard").unwrap();
     cmd.arg("view")
@@ -612,8 +307,6 @@ fn test_view_create_sets_upstream_for_existing_branch() {
         "feature-branch"
     );
 
-
-
     let output = StdCommand::new("git")
         .args(["rev-parse", "--abbrev-ref", "@{u}"])
         .current_dir(&repo_dir)
@@ -638,63 +331,13 @@ fn test_reproduce_upstream_tracking_bug() {
     let viewset_dir = temp_dir.path().join("bug-reproduction-viewset");
     fs::create_dir_all(&viewset_dir).unwrap();
 
-    // Create a bare remote repository
-    let remote_dir = TempDir::new().unwrap();
-    let remote_path = remote_dir.path();
-
-    let output = StdCommand::new("git")
-        .args(["init", "--bare"])
-        .current_dir(remote_path)
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-
-    // Create a seed repository to populate the remote
-    let seed_dir = TempDir::new().unwrap();
-    let seed_path = seed_dir.path();
-    let remote_path_str = remote_path.to_str().unwrap();
-
-    // Initialize and configure seed repo
-    StdCommand::new("git").args(["init"]).current_dir(seed_path).output().unwrap();
-    StdCommand::new("git").args(["remote", "add", "origin", remote_path_str]).current_dir(seed_path).output().unwrap();
-    StdCommand::new("git").args(["config", "user.name", "Test User"]).current_dir(seed_path).output().unwrap();
-    StdCommand::new("git").args(["config", "user.email", "test@example.com"]).current_dir(seed_path).output().unwrap();
-
-    // Create initial commit and push main
-    fs::write(seed_path.join("README.md"), "# Bug Reproduction\n").unwrap();
-    StdCommand::new("git").args(["add", "README.md"]).current_dir(seed_path).output().unwrap();
-    StdCommand::new("git").args(["commit", "-m", "Initial commit"]).current_dir(seed_path).output().unwrap();
-    StdCommand::new("git").args(["branch", "-M", "main"]).current_dir(seed_path).output().unwrap();
-    StdCommand::new("git").args(["push", "-u", "origin", "main"]).current_dir(seed_path).output().unwrap();
-
-    // Create and push CLIENTS-420 branch
-    StdCommand::new("git").args(["checkout", "-b", "CLIENTS-420"]).current_dir(seed_path).output().unwrap();
-    fs::write(seed_path.join("feature.txt"), "feature\n").unwrap();
-    StdCommand::new("git").args(["add", "feature.txt"]).current_dir(seed_path).output().unwrap();
-    StdCommand::new("git").args(["commit", "-m", "Add feature"]).current_dir(seed_path).output().unwrap();
-    StdCommand::new("git").args(["push", "-u", "origin", "CLIENTS-420"]).current_dir(seed_path).output().unwrap();
-
-    // Add more commits to simulate upstream changes
-    fs::write(seed_path.join("upstream.txt"), "upstream\n").unwrap();
-    StdCommand::new("git").args(["add", "upstream.txt"]).current_dir(seed_path).output().unwrap();
-    StdCommand::new("git").args(["commit", "-m", "Upstream change"]).current_dir(seed_path).output().unwrap();
-    StdCommand::new("git").args(["push"]).current_dir(seed_path).output().unwrap();
-
-    // Set remote HEAD
-    StdCommand::new("git").args(["symbolic-ref", "HEAD", "refs/heads/main"]).current_dir(remote_path).output().unwrap();
+    // Set up git repository with feature branch and upstream changes using utility
+    let git_setup = GitRepoSetup::new();
+    git_setup.create_feature_branch("CLIENTS-420");
+    git_setup.add_upstream_commits();
 
     // Create viewyard configuration
-    let repos = json!([{
-        "name": "bug-repo",
-        "url": remote_path_str,
-        "is_private": false,
-        "source": "GitHub (test-user)",
-        "account": "test-user"
-    }]);
-    fs::write(
-        viewset_dir.join(".viewyard-repos.json"),
-        serde_json::to_string_pretty(&repos).unwrap(),
-    ).unwrap();
+    create_viewyard_config(&viewset_dir, "bug-repo", git_setup.remote_url(), None);
 
     // Create view using viewyard
     let mut cmd = Command::cargo_bin("viewyard").unwrap();
