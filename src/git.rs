@@ -417,6 +417,11 @@ pub fn validate_repository_for_operations(
     validate_and_configure_git_user(repo_path, &account)
         .with_context(|| format!("Failed to configure git user for repository: {}", repo.name))?;
 
+    // 4. Check for SSH authentication mismatches (only for SSH URLs)
+    if repo.url.starts_with("git@github.com:") {
+        check_ssh_authentication_mismatch(&account, &repo.url)?;
+    }
+
     Ok(())
 }
 
@@ -438,5 +443,48 @@ pub fn validate_repository_directory(repo_path: &Path, repo_name: &str) -> Resul
         );
     }
 
+    Ok(())
+}
+
+/// Check for SSH authentication mismatches and provide helpful guidance
+/// This function detects when SSH authentication uses a different GitHub account
+/// than expected and suggests using SSH host aliases to fix the issue.
+fn check_ssh_authentication_mismatch(expected_account: &str, repo_url: &str) -> Result<()> {
+    use std::process::Command;
+
+    // Try to detect current SSH GitHub account with a quick test
+    let output = Command::new("ssh")
+        .args(["-T", "-o", "ConnectTimeout=3", "-o", "BatchMode=yes", "git@github.com"])
+        .output();
+
+    if let Ok(output) = output {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        // Look for GitHub's authentication response: "Hi username! You've successfully authenticated"
+        if let Some(start) = stderr.find("Hi ") {
+            if let Some(end) = stderr[start + 3..].find("!") {
+                let ssh_account = stderr[start + 3..start + 3 + end].trim();
+
+                if !ssh_account.is_empty() && ssh_account != expected_account {
+                    // SSH authentication mismatch detected
+                    use crate::ui;
+                    ui::print_warning(&format!(
+                        "SSH authentication mismatch detected for {}",
+                        repo_url
+                    ));
+                    ui::print_info(&format!("  SSH authenticates as: {}", ssh_account));
+                    ui::print_info(&format!("  Repository expects: {}", expected_account));
+                    ui::print_info("To fix this, add SSH host alias to ~/.ssh/config:");
+                    ui::print_info(&format!("  Host github.com-{}", expected_account));
+                    ui::print_info("    HostName github.com");
+                    ui::print_info("    User git");
+                    ui::print_info(&format!("    IdentityFile ~/.ssh/id_rsa_{}", expected_account));
+                    ui::print_info(&format!("Then update remote URL: git remote set-url origin git@github.com-{}:{}", expected_account, &repo_url[15..]));
+                }
+            }
+        }
+    }
+
+    // Always return Ok - SSH check is informational only, don't fail the operation
     Ok(())
 }

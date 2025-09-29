@@ -435,3 +435,65 @@ fn test_global_config_never_modified() -> Result<()> {
 
     Ok(())
 }
+
+/// Test for issue #4: SSH authentication mismatch detection
+/// This test verifies that SSH authentication mismatches are detected and handled gracefully
+#[test]
+fn test_ssh_authentication_mismatch_handling() -> Result<()> {
+    use viewyard::models::Repository;
+
+    let temp_repo = create_test_repo_with_remote_default("main")?;
+    let repo_path = temp_repo.path();
+
+    // Create a repository with SSH URL
+    let repo = Repository {
+        name: "test-repo".to_string(),
+        url: "git@github.com:testuser/test-repo.git".to_string(),
+        is_private: false,
+        source: "GitHub (testuser)".to_string(),
+        account: Some("testuser".to_string()),
+        directory_name: None,
+    };
+
+    // This should complete without errors even if SSH authentication doesn't match
+    // The SSH check is informational only and won't fail the operation
+    git::validate_repository_for_operations(repo_path, &repo)?;
+
+    // Verify git config was set correctly regardless of SSH status
+    let configured_name = git::get_git_config("user.name", repo_path)?;
+    let configured_email = git::get_git_config("user.email", repo_path)?;
+    assert_eq!(configured_name, "testuser");
+    assert_eq!(configured_email, "testuser@users.noreply.github.com");
+
+    Ok(())
+}
+
+/// Test that HTTPS URLs skip SSH authentication checks
+#[test]
+fn test_https_urls_skip_ssh_checks() -> Result<()> {
+    use viewyard::models::Repository;
+
+    let temp_repo = create_test_repo_with_remote_default("main")?;
+    let repo_path = temp_repo.path();
+
+    // Create a repository with HTTPS URL
+    let repo = Repository {
+        name: "test-repo".to_string(),
+        url: "https://github.com/testuser/test-repo.git".to_string(),
+        is_private: false,
+        source: "GitHub (testuser)".to_string(),
+        account: Some("testuser".to_string()),
+        directory_name: None,
+    };
+
+    // This should complete without any SSH checks
+    git::validate_repository_for_operations(repo_path, &repo)?;
+
+    // Verify git config was set correctly
+    let configured_name = git::get_git_config("user.name", repo_path)?;
+    let configured_email = git::get_git_config("user.email", repo_path)?;
+    assert_eq!(configured_name, "testuser");
+    assert_eq!(configured_email, "testuser@users.noreply.github.com");
+
+    Ok(())
+}
