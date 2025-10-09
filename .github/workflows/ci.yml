@@ -62,18 +62,20 @@ jobs:
       - name: Determine version bump
         id: version
         run: |
-          # Get current version from Cargo.toml
-          current_version=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
-          echo "Current version: $current_version"
-
-          # Get commits since last tag
-          last_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          # Get the latest version tag by version number (not git ancestry)
+          last_tag=$(git tag --list 'v*' --sort=-version:refname | head -1)
           if [ -z "$last_tag" ]; then
-            echo "No previous tags found, checking all commits"
+            echo "No previous tags found, starting from v0.1.0"
+            current_version="0.1.0"
             commits=$(git log --oneline --pretty=format:"%s")
           else
-            echo "Checking commits since $last_tag"
-            commits=$(git log ${last_tag}..HEAD --oneline --pretty=format:"%s")
+            # Remove 'v' prefix from tag to get version
+            current_version=${last_tag#v}
+            echo "Latest version tag: $last_tag (version: $current_version)"
+
+            # Get commits since the latest tag
+            # Note: This may include commits from parallel branches if tags were created elsewhere
+            commits=$(git log ${last_tag}..HEAD --oneline --pretty=format:"%s" 2>/dev/null || git log --oneline --pretty=format:"%s")
           fi
 
           # Skip if no new commits
