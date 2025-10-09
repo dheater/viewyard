@@ -249,7 +249,9 @@ fn create_empty_viewset(viewset_path: &std::path::Path, name: &str, when: &str) 
         viewset_path.display()
     ));
     ui::print_info(&format!("Navigate to: cd {name}"));
-    ui::print_info(&format!("Manually edit .viewyard-repos.json to add repositories {when}"));
+    ui::print_info(&format!(
+        "Manually edit .viewyard-repos.json to add repositories {when}"
+    ));
     ui::print_info("Then run 'viewyard view create <view-name>' to create your first view");
     Ok(())
 }

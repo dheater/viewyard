@@ -1,4 +1,4 @@
-name: Rust
+name: CI
 
 on:
   push:
@@ -24,8 +24,8 @@ jobs:
       run: cargo test --lib --verbose
     - name: Run unit test files
       run: cargo test --test unit_tests --verbose
-    - name: Run simple integration tests
-      run: cargo test --test simple_integration --verbose
+    - name: Run git tests
+      run: cargo test --test git_tests --verbose
     - name: Run integration tests (CLI interface)
       run: cargo test --test integration_tests --verbose
     - name: Run real workflow tests (may have expected failures)
