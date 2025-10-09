@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use std::path::Path;
 use std::process::{Command, Output};
+use std::collections::HashMap;
 use std::time::Duration;
 
 // # Git Configuration Safety
@@ -224,6 +225,74 @@ pub fn get_default_branch(cwd: &Path) -> Result<String> {
     }
 
     anyhow::bail!("Could not determine default branch for repository")
+}
+
+/// Detect SSH host aliases for GitHub from SSH config
+/// Returns a map of account -> SSH host (e.g., "dheater" -> "github.com-dheater")
+pub fn detect_ssh_host_aliases() -> HashMap<String, String> {
+    let mut aliases = HashMap::new();
+
+    // Try to read SSH config file
+    let ssh_config_path = std::env::var("HOME")
+        .map(|home| format!("{}/.ssh/config", home))
+        .unwrap_or_else(|_| "/dev/null".to_string());
+
+    if let Ok(config_content) = std::fs::read_to_string(&ssh_config_path) {
+        let mut current_host: Option<String> = None;
+        let mut current_hostname: Option<String> = None;
+
+        for line in config_content.lines() {
+            let line = line.trim();
+
+            if line.starts_with("Host ") {
+                // Process previous host if it was a GitHub alias
+                if let (Some(host), Some(hostname)) = (&current_host, &current_hostname) {
+                    if hostname == "github.com" && host.starts_with("github.com-") {
+                        // Extract account from host alias (e.g., "github.com-dheater" -> "dheater")
+                        if let Some(account) = host.strip_prefix("github.com-") {
+                            aliases.insert(account.to_string(), host.clone());
+                        }
+                    }
+                }
+
+                // Start new host
+                current_host = Some(line[5..].trim().to_string());
+                current_hostname = None;
+            } else if line.starts_with("HostName ") {
+                current_hostname = Some(line[9..].trim().to_string());
+            }
+        }
+
+        // Process the last host
+        if let (Some(host), Some(hostname)) = (&current_host, &current_hostname) {
+            if hostname == "github.com" && host.starts_with("github.com-") {
+                if let Some(account) = host.strip_prefix("github.com-") {
+                    aliases.insert(account.to_string(), host.clone());
+                }
+            }
+        }
+    }
+
+    aliases
+}
+
+/// Transform a GitHub SSH URL to use the appropriate SSH host alias
+/// Returns the original URL if no alias is found or if it's not a GitHub SSH URL
+pub fn transform_github_url_for_account(url: &str, account: &str) -> String {
+    // Only transform SSH URLs for github.com
+    if !url.starts_with("git@github.com:") {
+        return url.to_string();
+    }
+
+    let ssh_aliases = detect_ssh_host_aliases();
+
+    if let Some(host_alias) = ssh_aliases.get(account) {
+        // Replace "git@github.com:" with "git@{host_alias}:"
+        url.replace("git@github.com:", &format!("git@{}:", host_alias))
+    } else {
+        // No SSH alias found, return original URL
+        url.to_string()
+    }
 }
 
 /// Extract GitHub account from repository source string

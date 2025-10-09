@@ -22,7 +22,7 @@ fn load_and_validate_repos(repos_file: &std::path::Path) -> Result<Vec<models::R
         )
     })?;
 
-    let repositories: Vec<models::Repository> = serde_json::from_str(&repos_json)
+    let mut repositories: Vec<models::Repository> = serde_json::from_str(&repos_json)
         .with_context(|| {
             format!(
                 "Invalid JSON in configuration file: {}\n\
@@ -30,6 +30,15 @@ fn load_and_validate_repos(repos_file: &std::path::Path) -> Result<Vec<models::R
                 repos_file.display()
             )
         })?;
+
+    // Transform URLs to use SSH host aliases if available
+    for repo in &mut repositories {
+        if let Some(ref account) = repo.account {
+            repo.url = git::transform_github_url_for_account(&repo.url, account);
+        } else if let Ok(account) = git::extract_account_from_source(&repo.source) {
+            repo.url = git::transform_github_url_for_account(&repo.url, &account);
+        }
+    }
 
     // Validate each repository entry
     for (index, repo) in repositories.iter().enumerate() {

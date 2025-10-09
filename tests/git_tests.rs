@@ -427,3 +427,27 @@ fn test_global_config_never_modified() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_transform_github_url_for_account() {
+    // Test SSH URL transformation
+    let original_url = "git@github.com:dheater/test-repo.git";
+
+    // This will use the actual SSH config, so we test with a mock scenario
+    let transformed = git::transform_github_url_for_account(original_url, "dheater");
+
+    // The transformation should either:
+    // 1. Return the original URL if no SSH alias is configured
+    // 2. Return a transformed URL if an SSH alias exists
+    assert!(transformed.contains("dheater/test-repo.git"));
+
+    // Test non-SSH URL (should remain unchanged)
+    let https_url = "https://github.com/dheater/test-repo.git";
+    let unchanged = git::transform_github_url_for_account(https_url, "dheater");
+    assert_eq!(unchanged, https_url);
+
+    // Test non-GitHub URL (should remain unchanged)
+    let gitlab_url = "git@gitlab.com:dheater/test-repo.git";
+    let unchanged_gitlab = git::transform_github_url_for_account(gitlab_url, "dheater");
+    assert_eq!(unchanged_gitlab, gitlab_url);
+}

@@ -186,9 +186,13 @@ impl GitHubService {
                 repo_data["isPrivate"].as_bool(),
             ) {
                 let privacy_indicator = if is_private { " [private]" } else { "" };
+
+                // Transform URL to use SSH host alias if available
+                let transformed_url = crate::git::transform_github_url_for_account(url, account);
+
                 repos.push(Repository {
                     name: name.to_string(),
-                    url: url.to_string(),
+                    url: transformed_url,
                     is_private,
                     source: format!("GitHub ({account}){privacy_indicator}"),
                     account: Some(account.to_string()),
@@ -284,9 +288,13 @@ impl GitHubService {
                 repo_data["isPrivate"].as_bool(),
             ) {
                 let privacy_indicator = if is_private { " [private]" } else { "" };
+
+                // Transform URL to use SSH host alias if available
+                let transformed_url = crate::git::transform_github_url_for_account(url, account);
+
                 repos.push(Repository {
                     name: name.to_string(),
-                    url: url.to_string(),
+                    url: transformed_url,
                     is_private,
                     source: format!("GitHub ({org}/{account}){privacy_indicator}"),
                     account: Some(account.to_string()),
