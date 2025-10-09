@@ -141,10 +141,7 @@ fn workspace_status() -> Result<()> {
 
         // Validate git repository and user configuration (but don't fail on config issues for status)
         if let Err(e) = git::validate_repository_for_operations(&repo_path, repo) {
-            ui::print_warning(&format!(
-                "{}: Git configuration issue - {}",
-                repo.name, e
-            ));
+            ui::print_warning(&format!("{}: Git configuration issue - {}", repo.name, e));
             // Continue with status check even if git config has issues
         }
 
@@ -332,9 +329,7 @@ fn workspace_commit_all(message: &str) -> Result<()> {
 
                 // Stop on first failure and inform user
                 ui::print_error("Commit operation stopped due to failure");
-                ui::print_info(
-                    "Fix the issue in the failed repository and run the command again",
-                );
+                ui::print_info("Fix the issue in the failed repository and run the command again");
                 ui::print_info(&format!(
                     "Successfully committed repositories: {}",
                     if committed_repos.is_empty() {
@@ -765,7 +760,7 @@ fn validate_branch_synchronization(view_context: &ViewContext) -> Result<()> {
     // Report any errors
     if !errors.is_empty() {
         for error in &errors {
-            ui::print_warning(&format!("{error}"));
+            ui::print_warning(&error.to_string());
         }
         anyhow::bail!("Cannot validate branch synchronization due to repository errors");
     }

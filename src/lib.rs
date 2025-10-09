@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod error_handling;
 pub mod git;
 pub mod github;
 pub mod interactive;

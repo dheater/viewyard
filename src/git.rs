@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::{Command, Output};
-use std::collections::HashMap;
 use std::time::Duration;
 
 // # Git Configuration Safety
@@ -229,13 +229,15 @@ pub fn get_default_branch(cwd: &Path) -> Result<String> {
 
 /// Detect SSH host aliases for GitHub from SSH config
 /// Returns a map of account -> SSH host (e.g., "dheater" -> "github.com-dheater")
+#[must_use]
 pub fn detect_ssh_host_aliases() -> HashMap<String, String> {
     let mut aliases = HashMap::new();
 
     // Try to read SSH config file
-    let ssh_config_path = std::env::var("HOME")
-        .map(|home| format!("{}/.ssh/config", home))
-        .unwrap_or_else(|_| "/dev/null".to_string());
+    let ssh_config_path = std::env::var("HOME").map_or_else(
+        |_| "/dev/null".to_string(),
+        |home| format!("{home}/.ssh/config"),
+    );
 
     if let Ok(config_content) = std::fs::read_to_string(&ssh_config_path) {
         let mut current_host: Option<String> = None;
@@ -244,7 +246,7 @@ pub fn detect_ssh_host_aliases() -> HashMap<String, String> {
         for line in config_content.lines() {
             let line = line.trim();
 
-            if line.starts_with("Host ") {
+            if let Some(host_part) = line.strip_prefix("Host ") {
                 // Process previous host if it was a GitHub alias
                 if let (Some(host), Some(hostname)) = (&current_host, &current_hostname) {
                     if hostname == "github.com" && host.starts_with("github.com-") {
@@ -256,10 +258,10 @@ pub fn detect_ssh_host_aliases() -> HashMap<String, String> {
                 }
 
                 // Start new host
-                current_host = Some(line[5..].trim().to_string());
+                current_host = Some(host_part.trim().to_string());
                 current_hostname = None;
-            } else if line.starts_with("HostName ") {
-                current_hostname = Some(line[9..].trim().to_string());
+            } else if let Some(hostname_part) = line.strip_prefix("HostName ") {
+                current_hostname = Some(hostname_part.trim().to_string());
             }
         }
 
@@ -278,6 +280,7 @@ pub fn detect_ssh_host_aliases() -> HashMap<String, String> {
 
 /// Transform a GitHub SSH URL to use the appropriate SSH host alias
 /// Returns the original URL if no alias is found or if it's not a GitHub SSH URL
+#[must_use]
 pub fn transform_github_url_for_account(url: &str, account: &str) -> String {
     // Only transform SSH URLs for github.com
     if !url.starts_with("git@github.com:") {
@@ -286,13 +289,10 @@ pub fn transform_github_url_for_account(url: &str, account: &str) -> String {
 
     let ssh_aliases = detect_ssh_host_aliases();
 
-    if let Some(host_alias) = ssh_aliases.get(account) {
-        // Replace "git@github.com:" with "git@{host_alias}:"
-        url.replace("git@github.com:", &format!("git@{}:", host_alias))
-    } else {
-        // No SSH alias found, return original URL
-        url.to_string()
-    }
+    ssh_aliases.get(account).map_or_else(
+        || url.to_string(),
+        |host_alias| url.replace("git@github.com:", &format!("git@{host_alias}:")),
+    )
 }
 
 /// Extract GitHub account from repository source string
@@ -341,10 +341,15 @@ pub enum GitConfigScope {
 }
 
 /// Get git configuration value for a specific key with explicit scope
-pub fn get_git_config_scoped(key: &str, scope: GitConfigScope, cwd: Option<&Path>) -> Result<String> {
+pub fn get_git_config_scoped(
+    key: &str,
+    scope: GitConfigScope,
+    cwd: Option<&Path>,
+) -> Result<String> {
     match scope {
         GitConfigScope::Local => {
-            let repo_path = cwd.ok_or_else(|| anyhow::anyhow!("Repository path required for local config"))?;
+            let repo_path =
+                cwd.ok_or_else(|| anyhow::anyhow!("Repository path required for local config"))?;
             run_git_command_string(&["config", "--local", key], Some(repo_path))
         }
         GitConfigScope::GlobalReadOnly => {
@@ -445,10 +450,7 @@ pub fn validate_and_configure_git_user(repo_path: &Path, account: &str) -> Resul
             }
         }
 
-        ui::print_info(&format!(
-            "Configured git user: {}",
-            config_parts.join(", ")
-        ));
+        ui::print_info(&format!("Configured git user: {}", config_parts.join(", ")));
     }
 
     Ok(())

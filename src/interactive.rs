@@ -17,6 +17,15 @@ impl InteractiveSelector {
 
     /// Interactive repository selection with iterative search and numbered list selection
     pub fn select_repositories(&self, repositories: &[Repository]) -> Result<Vec<Repository>> {
+        self.select_repositories_with_existing(repositories, &[])
+    }
+
+    /// Interactive repository selection with context of existing repositories
+    pub fn select_repositories_with_existing(
+        &self,
+        repositories: &[Repository],
+        existing_repos: &[Repository],
+    ) -> Result<Vec<Repository>> {
         if repositories.is_empty() {
             println!("No repositories found.");
             return Ok(Vec::new());
@@ -34,8 +43,16 @@ impl InteractiveSelector {
 
         loop {
             // Show current selection status
-            if !selected_repos.is_empty() {
-                println!("Currently selected: {} repositories", selected_repos.len());
+            let total_selected = existing_repos.len() + selected_repos.len();
+            if total_selected > 0 {
+                println!("Currently selected: {total_selected} repositories");
+
+                // Show existing repositories first
+                for repo in existing_repos {
+                    println!("  ✓ {} (existing)", repo.name);
+                }
+
+                // Show newly selected repositories
                 for repo in &selected_repos {
                     println!("  ✓ {}", repo.name);
                 }

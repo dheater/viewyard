@@ -418,12 +418,18 @@ fn test_global_config_never_modified() -> Result<()> {
         });
 
     // Assert that global config is completely unchanged
-    assert_eq!(initial_global_name, final_global_name,
-        "Global git user.name was modified! This is a critical security violation.");
-    assert_eq!(initial_global_email, final_global_email,
-        "Global git user.email was modified! This is a critical security violation.");
-    assert_eq!(initial_global_signing_key, final_global_signing_key,
-        "Global git user.signingkey was modified! This is a critical security violation.");
+    assert_eq!(
+        initial_global_name, final_global_name,
+        "Global git user.name was modified! This is a critical security violation."
+    );
+    assert_eq!(
+        initial_global_email, final_global_email,
+        "Global git user.email was modified! This is a critical security violation."
+    );
+    assert_eq!(
+        initial_global_signing_key, final_global_signing_key,
+        "Global git user.signingkey was modified! This is a critical security violation."
+    );
 
     Ok(())
 }

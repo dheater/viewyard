@@ -1,18 +1,23 @@
 use viewyard::models::Repository;
 use viewyard::search::RepositorySearch;
 
+/// Helper function to create test repositories with minimal boilerplate
+fn create_test_repo(name: &str, source: &str, is_private: bool) -> Repository {
+    Repository {
+        name: name.to_string(),
+        url: format!("https://github.com/test/{name}.git"),
+        is_private,
+        source: source.to_string(),
+        account: None,
+    }
+}
+
 #[test]
 fn test_repository_creation() {
-    let repo = Repository {
-        name: "test-repo".to_string(),
-        url: "https://github.com/test/repo.git".to_string(),
-        is_private: false,
-        source: "GitHub (test)".to_string(),
-        account: None,
-    };
+    let repo = create_test_repo("test-repo", "GitHub (test)", false);
 
     assert_eq!(repo.name, "test-repo");
-    assert_eq!(repo.url, "https://github.com/test/repo.git");
+    assert_eq!(repo.url, "https://github.com/test/test-repo.git");
     assert!(!repo.is_private);
     assert_eq!(repo.source, "GitHub (test)");
 }

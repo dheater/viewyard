@@ -31,9 +31,13 @@ Viewyard uses a focused testing approach with real integration tests:
   - Context detection (viewset vs view vs outside)
   - Help system functionality
 
-### 4. Simple Integration Tests (`tests/simple_integration.rs`)
-- **Purpose**: Basic smoke tests for core functionality
-- **Coverage**: Help command, basic CLI validation
+### 4. Git Tests (`tests/git_tests.rs`)
+- **Purpose**: Test git operations and configuration management
+- **Coverage**: Git config operations, branch detection, SSH host aliases
+- **Key Features**:
+  - Git configuration safety (never modifies global config)
+  - Default branch detection across different git setups
+  - Repository validation and account extraction
 
 ## Running Tests
 
@@ -47,14 +51,14 @@ cargo test
 # Unit tests
 cargo test --test unit_tests
 
-# Integration tests  
+# Integration tests
 cargo test --test integration_tests
 
 # Real workflow tests
 cargo test --test real_workflow_tests
 
-# Simple integration tests
-cargo test --test simple_integration
+# Git tests
+cargo test --test git_tests
 ```
 
 ## Test Principles

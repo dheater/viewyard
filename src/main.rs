@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 mod commands;
+mod error_handling;
 mod git;
 mod github;
 mod interactive;
@@ -128,6 +129,12 @@ enum ViewsetCommand {
         #[arg(long)]
         account: Option<String>,
     },
+    /// Update an existing viewset by adding new repositories
+    Update {
+        /// GitHub account to search repositories from
+        #[arg(short, long)]
+        account: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -136,6 +143,11 @@ enum ViewCommand {
     Create {
         /// Name of the view/branch to create
         name: String,
+    },
+    /// Update an existing view to include new repositories from the viewset
+    Update {
+        /// Name of the view to update (defaults to current view)
+        name: Option<String>,
     },
 }
 
@@ -159,12 +171,14 @@ fn main() -> Result<()> {
 fn handle_viewset_command(action: ViewsetCommand) -> Result<()> {
     match action {
         ViewsetCommand::Create { name, account } => create_viewset(&name, account.as_deref()),
+        ViewsetCommand::Update { account } => update_viewset(account.as_deref()),
     }
 }
 
 fn handle_view_command(action: ViewCommand) -> Result<()> {
     match action {
         ViewCommand::Create { name } => create_view(&name),
+        ViewCommand::Update { name } => update_view(name.as_deref()),
     }
 }
 
@@ -184,51 +198,10 @@ fn create_viewset(name: &str, account: Option<&str>) -> Result<()> {
         return Err(anyhow::anyhow!("Directory already exists"));
     }
 
-    // Check GitHub CLI availability
-    if !GitHubService::check_availability()? {
-        ui::show_error_with_help(
-            "GitHub CLI is not available or not authenticated",
-            &[
-                "Install GitHub CLI: https://cli.github.com/",
-                "Then authenticate: gh auth login",
-                "Or create an empty viewset and manually edit .viewyard-repos.json",
-            ],
-        );
-
-        // Create empty directory as fallback
-        std::fs::create_dir_all(&viewset_path)?;
-        ui::print_success(&format!(
-            "✓ Created empty viewset directory: {}",
-            viewset_path.display()
-        ));
-        ui::print_info(&format!("Navigate to: cd {name}"));
-        ui::print_info(
-            "Manually edit .viewyard-repos.json to add repositories when GitHub CLI is set up",
-        );
-        ui::print_info("Then run 'viewyard view create <view-name>' to create your first view");
-        return Ok(());
-    }
-
     // Discover repositories
-    ui::print_info("Discovering repositories from GitHub...");
-
-    let repositories = if let Some(specific_account) = account {
-        GitHubService::discover_repositories_from_account(specific_account)?
-    } else {
-        GitHubService::discover_all_repositories()?
+    let Ok(repositories) = discover_repositories_for_viewset(account) else {
+        return create_empty_viewset(&viewset_path, name, "when GitHub CLI is set up");
     };
-
-    if repositories.is_empty() {
-        ui::print_warning("No repositories found");
-        std::fs::create_dir_all(&viewset_path)?;
-        ui::print_success(&format!(
-            "✓ Created empty viewset directory: {}",
-            viewset_path.display()
-        ));
-        ui::print_info(&format!("Navigate to: cd {name}"));
-        ui::print_info("Run 'viewyard view create <view-name>' to create your first view");
-        return Ok(());
-    }
 
     // Interactive repository selection
     let selector = InteractiveSelector::new();
@@ -236,15 +209,7 @@ fn create_viewset(name: &str, account: Option<&str>) -> Result<()> {
 
     if selected_repos.is_empty() {
         ui::print_info("No repositories selected. Creating empty viewset.");
-        std::fs::create_dir_all(&viewset_path)?;
-        ui::print_success(&format!(
-            "✓ Created empty viewset directory: {}",
-            viewset_path.display()
-        ));
-        ui::print_info(&format!("Navigate to: cd {name}"));
-        ui::print_info("Manually edit .viewyard-repos.json to add repositories later");
-        ui::print_info("Then run 'viewyard view create <view-name>' to create your first view");
-        return Ok(());
+        return create_empty_viewset(&viewset_path, name, "later");
     }
 
     // Confirm selection
@@ -276,6 +241,46 @@ fn create_viewset(name: &str, account: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// Create an empty viewset directory with helpful instructions
+fn create_empty_viewset(viewset_path: &std::path::Path, name: &str, when: &str) -> Result<()> {
+    std::fs::create_dir_all(viewset_path)?;
+    ui::print_success(&format!(
+        "✓ Created empty viewset directory: {}",
+        viewset_path.display()
+    ));
+    ui::print_info(&format!("Navigate to: cd {name}"));
+    ui::print_info(&format!("Manually edit .viewyard-repos.json to add repositories {when}"));
+    ui::print_info("Then run 'viewyard view create <view-name>' to create your first view");
+    Ok(())
+}
+
+/// Load repositories from a viewset with validation
+fn load_viewset_repositories(viewset_root: &std::path::Path) -> Result<Vec<models::Repository>> {
+    let repos_file = viewset_root.join(".viewyard-repos.json");
+    if !repos_file.exists() {
+        ui::show_error_with_help(
+            "No repositories found in this viewset",
+            &[
+                "Manually edit .viewyard-repos.json to add repositories to this viewset",
+                "Or create a new viewset with 'viewyard viewset create <name>'",
+            ],
+        );
+        anyhow::bail!("No repositories in viewset");
+    }
+
+    let repositories = load_and_validate_repos(&repos_file)?;
+
+    if repositories.is_empty() {
+        ui::show_error_with_help(
+            "No repositories found in this viewset",
+            &["Manually edit .viewyard-repos.json to add repositories to this viewset"],
+        );
+        anyhow::bail!("No repositories in viewset");
+    }
+
+    Ok(repositories)
+}
+
 fn create_view(view_name: &str) -> Result<()> {
     ui::print_info(&format!("Creating view: {view_name}"));
 
@@ -295,27 +300,7 @@ fn create_view(view_name: &str) -> Result<()> {
     }
 
     // Load repository list from viewset
-    let repos_file = viewset_context.viewset_root.join(".viewyard-repos.json");
-    if !repos_file.exists() {
-        ui::show_error_with_help(
-            "No repositories found in this viewset",
-            &[
-                "Manually edit .viewyard-repos.json to add repositories to this viewset",
-                "Or create a new viewset with 'viewyard viewset create <name>'",
-            ],
-        );
-        return Err(anyhow::anyhow!("No repositories in viewset"));
-    }
-
-    let repositories = load_and_validate_repos(&repos_file)?;
-
-    if repositories.is_empty() {
-        ui::show_error_with_help(
-            "No repositories found in this viewset",
-            &["Manually edit .viewyard-repos.json to add repositories to this viewset"],
-        );
-        return Err(anyhow::anyhow!("No repositories in viewset"));
-    }
+    let repositories = load_viewset_repositories(&viewset_context.viewset_root)?;
 
     // Create temporary directory for atomic operation
     let temp_view_path = view_path.with_extension("tmp");
@@ -392,6 +377,16 @@ fn detect_viewset_context() -> Result<ViewsetContext> {
         });
     }
 
+    // Check if current directory is a view (parent contains .viewyard-repos.json)
+    if let Some(parent) = current_dir.parent() {
+        let repos_file = parent.join(".viewyard-repos.json");
+        if repos_file.exists() {
+            return Ok(ViewsetContext {
+                viewset_root: parent.to_path_buf(),
+            });
+        }
+    }
+
     // Provide detailed context about where the user is and what's expected
     let current_path = current_dir.display();
 
@@ -424,51 +419,7 @@ fn clone_and_setup_branch(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-
-        // Provide specific recovery guidance based on error type
-        if stderr.contains("Permission denied") || stderr.contains("publickey") {
-            ui::print_error(&format!("SSH authentication failed for {}", repo.name));
-            ui::print_info("SSH key issues detected:");
-            ui::print_info("   • Test SSH connection: ssh -T git@github.com");
-            ui::print_info(
-                "   • Add SSH key to GitHub: gh auth refresh -h github.com -s admin:public_key",
-            );
-            ui::print_info("   • Or use HTTPS: git config --global url.\"https://github.com/\".insteadOf git@github.com:");
-            anyhow::bail!("SSH authentication failed for repository '{}'", repo.name);
-        } else if stderr.contains("not found") || stderr.contains("does not exist") {
-            ui::print_error(&format!("Repository not found: {}", repo.name));
-            ui::print_info("Repository access issues:");
-            ui::print_info(&format!(
-                "   • Verify repository exists: gh repo view {}",
-                repo.name
-            ));
-            ui::print_info("   • Check repository URL in .viewyard-repos.json");
-            ui::print_info("   • Ensure you have access to this repository");
-            anyhow::bail!("Repository '{}' not found or inaccessible", repo.name);
-        } else if stderr.contains("timeout") || stderr.contains("network") {
-            ui::print_error(&format!("Network timeout cloning {}", repo.name));
-            ui::print_info("Network issues detected:");
-            ui::print_info("   • Check internet connection");
-            ui::print_info("   • Try again in a few moments");
-            ui::print_info("   • Consider using a VPN if behind corporate firewall");
-            anyhow::bail!("Network timeout cloning repository '{}'", repo.name);
-        } else if stderr.contains("already exists") {
-            ui::print_error(&format!("Directory already exists: {}", repo.name));
-            ui::print_info("Directory conflict:");
-            ui::print_info(&format!(
-                "   • Remove existing directory: rm -rf {}",
-                repo.name
-            ));
-            ui::print_info("   • Or choose a different view name");
-            anyhow::bail!("Directory '{}' already exists", repo.name);
-        }
-        // Generic error with full stderr
-        ui::print_error(&format!("Failed to clone {}", repo.name));
-        ui::print_info("Git clone failed:");
-        ui::print_info(&format!("   • Error: {}", stderr.trim()));
-        ui::print_info("   • Check repository URL and permissions");
-        ui::print_info("   • Verify git and network connectivity");
-        anyhow::bail!("Failed to clone repository '{}': {}", repo.name, stderr);
+        error_handling::handle_clone_error(&repo.name, &stderr)?;
     }
 
     ui::print_info(&format!("  Cloned {}", repo.name));
@@ -505,30 +456,9 @@ fn setup_branch_in_repo(repo_path: &std::path::Path, branch_name: &str) -> Resul
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-
-            if stderr.contains("uncommitted changes") || stderr.contains("would be overwritten") {
-                ui::print_error(&format!(
-                    "Cannot checkout branch '{branch_name}' - uncommitted changes"
-                ));
-                ui::print_info("Uncommitted changes detected:");
-                ui::print_info(&format!("   • Navigate to: cd {}", repo_path.display()));
-                ui::print_info("   • Commit changes: git add . && git commit -m \"Save work\"");
-                ui::print_info("   • Or stash changes: git stash");
-                ui::print_info("   • Then retry view creation");
-            } else {
-                ui::print_error(&format!("Failed to checkout branch '{branch_name}'"));
-                ui::print_info("Branch checkout failed:");
-                ui::print_info(&format!("   • Error: {}", stderr.trim()));
-                ui::print_info(&format!(
-                    "   • Check branch status: cd {} && git status",
-                    repo_path.display()
-                ));
-            }
-            anyhow::bail!("Failed to checkout branch '{}': {}", branch_name, stderr);
+            error_handling::handle_checkout_error(branch_name, repo_path, &stderr)?;
         }
-        ui::print_info(&format!(
-            "    Checked out existing branch '{branch_name}'"
-        ));
+        ui::print_info(&format!("    Checked out existing branch '{branch_name}'"));
     } else {
         // Create new branch from current default branch
         let output = std::process::Command::new("git")
@@ -539,32 +469,338 @@ fn setup_branch_in_repo(repo_path: &std::path::Path, branch_name: &str) -> Resul
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-
-            if stderr.contains("already exists") {
-                ui::print_error(&format!("Branch '{branch_name}' already exists"));
-                ui::print_info("Branch conflict:");
-                ui::print_info(&format!(
-                    "   • Use existing branch: git checkout {branch_name}"
-                ));
-                ui::print_info(&format!(
-                    "   • Or delete existing: git branch -D {branch_name}"
-                ));
-                ui::print_info("   • Then retry view creation");
-            } else {
-                ui::print_error(&format!("Failed to create branch '{branch_name}'"));
-                ui::print_info("Branch creation failed:");
-                ui::print_info(&format!("   • Error: {}", stderr.trim()));
-                ui::print_info(&format!(
-                    "   • Check repository state: cd {} && git status",
-                    repo_path.display()
-                ));
-            }
-            anyhow::bail!("Failed to create branch '{}': {}", branch_name, stderr);
+            error_handling::handle_branch_creation_error(branch_name, repo_path, &stderr)?;
         }
         ui::print_info(&format!(
             "    Created and checked out new branch '{branch_name}'"
         ));
     }
+
+    Ok(())
+}
+
+fn update_view(view_name: Option<&str>) -> Result<()> {
+    // Check if git is available
+    git::check_git_availability()?;
+
+    // Detect viewset context
+    let viewset_context = detect_viewset_context()?;
+
+    // Determine view name - use provided name or detect from current directory
+    let target_view_name = if let Some(name) = view_name {
+        name.to_string()
+    } else {
+        // Try to detect current view from directory name
+        std::env::current_dir()?
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| anyhow::anyhow!("Could not determine view name from current directory"))?
+            .to_string()
+    };
+
+    let view_path = viewset_context.viewset_root.join(&target_view_name);
+
+    // Check if view exists
+    if !view_path.exists() {
+        ui::show_error_with_help(
+            &format!("View '{target_view_name}' does not exist"),
+            &[
+                "Create the view first: viewyard view create <view-name>",
+                "Or specify an existing view: viewyard view update <existing-view-name>",
+            ],
+        );
+        return Err(anyhow::anyhow!("View does not exist"));
+    }
+
+    ui::print_info(&format!("Updating view: {target_view_name}"));
+
+    // Load repository list from viewset
+    let Ok(repositories) = load_viewset_repositories(&viewset_context.viewset_root) else {
+        ui::print_info("No repositories in viewset - nothing to update");
+        return Ok(());
+    };
+
+    // Determine which repositories are missing from the current view
+    let missing_repos = find_missing_repositories(&repositories, &view_path);
+
+    if missing_repos.is_empty() {
+        ui::print_success("View is already up to date - all repositories are present");
+        return Ok(());
+    }
+
+    ui::print_info(&format!(
+        "Found {} missing repositories to add: {}",
+        missing_repos.len(),
+        missing_repos
+            .iter()
+            .map(|r| r.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+
+    // Clone and setup missing repositories directly in the view
+    ui::print_info("Adding missing repositories...");
+
+    for repo in &missing_repos {
+        ui::print_info(&format!(
+            "  Setting up {} on branch '{}'",
+            repo.name, target_view_name
+        ));
+
+        match clone_and_setup_repository_in_view(repo, &view_path, &target_view_name) {
+            Ok(()) => {
+                ui::print_info(&format!("  ✓ Added {}", repo.name));
+            }
+            Err(e) => {
+                ui::print_error(&format!("Failed to add {}: {}", repo.name, e));
+                return Err(e.context(format!("Failed to add repository '{}'", repo.name)));
+            }
+        }
+    }
+
+    ui::print_success(&format!(
+        "View '{}' updated successfully! Added {} repositories.",
+        target_view_name,
+        missing_repos.len()
+    ));
+
+    Ok(())
+}
+
+/// Find repositories that are missing from the current view
+fn find_missing_repositories(
+    all_repos: &[models::Repository],
+    view_path: &std::path::Path,
+) -> Vec<models::Repository> {
+    let mut missing_repos = Vec::new();
+
+    for repo in all_repos {
+        let repo_path = view_path.join(&repo.name);
+        if !repo_path.exists() {
+            missing_repos.push(repo.clone());
+        }
+    }
+
+    missing_repos
+}
+
+/// Clone and setup a single repository directly in an existing view
+fn clone_and_setup_repository_in_view(
+    repo: &models::Repository,
+    view_path: &std::path::Path,
+    branch_name: &str,
+) -> Result<()> {
+    let repo_path = view_path.join(&repo.name);
+
+    // Ensure the repository directory doesn't already exist
+    if repo_path.exists() {
+        return Ok(()); // Already exists, nothing to do
+    }
+
+    // Clone repository directly into the view
+    let output = std::process::Command::new("git")
+        .args(["clone", &repo.url, &repo.name])
+        .current_dir(view_path)
+        .output()
+        .context("Failed to execute git clone")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        // Provide specific recovery guidance based on error type
+        if stderr.contains("Permission denied") || stderr.contains("publickey") {
+            ui::print_error(&format!("SSH authentication failed for {}", repo.name));
+            ui::print_info("SSH key issues detected:");
+            ui::print_info("   • Test SSH connection: ssh -T git@github.com");
+            ui::print_info(
+                "   • Add SSH key to GitHub: gh auth refresh -h github.com -s admin:public_key",
+            );
+            anyhow::bail!("SSH authentication failed for repository '{}'", repo.name);
+        } else if stderr.contains("not found") || stderr.contains("does not exist") {
+            ui::print_error(&format!("Repository not found: {}", repo.name));
+            ui::print_info("Repository access issues:");
+            ui::print_info(&format!(
+                "   • Verify repository exists: gh repo view {}",
+                repo.name
+            ));
+            ui::print_info("   • Check repository URL in .viewyard-repos.json");
+            ui::print_info("   • Ensure you have access to this repository");
+            anyhow::bail!("Repository '{}' not found or inaccessible", repo.name);
+        }
+
+        anyhow::bail!("Failed to clone repository '{}': {}", repo.name, stderr);
+    }
+
+    // Configure git user for the repository
+    if let Some(ref account) = repo.account {
+        git::validate_and_configure_git_user(&repo_path, account)?;
+    } else if let Ok(account) = git::extract_account_from_source(&repo.source) {
+        git::validate_and_configure_git_user(&repo_path, &account)?;
+    }
+
+    // Setup branch in the newly cloned repository
+    setup_branch_in_repo(&repo_path, branch_name)?;
+
+    Ok(())
+}
+
+/// Discover repositories from GitHub based on account preference
+fn discover_repositories_for_viewset(account: Option<&str>) -> Result<Vec<models::Repository>> {
+    // Check GitHub CLI availability
+    if !GitHubService::check_availability()? {
+        ui::show_error_with_help(
+            "GitHub CLI is not available or not authenticated",
+            &[
+                "Install GitHub CLI: https://cli.github.com/",
+                "Then authenticate: gh auth login",
+                "Or manually edit .viewyard-repos.json to add repositories",
+            ],
+        );
+        anyhow::bail!("GitHub CLI not available");
+    }
+
+    // Discover repositories
+    ui::print_info("Discovering repositories from GitHub...");
+
+    let repositories = if let Some(specific_account) = account {
+        GitHubService::discover_repositories_from_account(specific_account)?
+    } else {
+        GitHubService::discover_all_repositories()?
+    };
+
+    if repositories.is_empty() {
+        ui::print_warning("No repositories found");
+        anyhow::bail!("No repositories found");
+    }
+
+    Ok(repositories)
+}
+
+/// Filter out repositories that already exist in the viewset
+fn filter_existing_repositories(
+    all_repos: &[models::Repository],
+    existing_repos: &[models::Repository],
+) -> Vec<models::Repository> {
+    let existing_names: std::collections::HashSet<&str> =
+        existing_repos.iter().map(|r| r.name.as_str()).collect();
+
+    all_repos
+        .iter()
+        .filter(|repo| !existing_names.contains(repo.name.as_str()))
+        .cloned()
+        .collect()
+}
+
+/// Interactive repository selection with context about existing repositories
+fn select_repositories_for_update(
+    available_repos: &[models::Repository],
+    existing_repos: &[models::Repository],
+) -> Result<Vec<models::Repository>> {
+    if available_repos.is_empty() {
+        ui::print_info("All available repositories are already in the viewset.");
+        return Ok(Vec::new());
+    }
+
+    ui::print_info(&format!(
+        "Current viewset has {} repositories. Found {} new repositories available to add.",
+        existing_repos.len(),
+        available_repos.len()
+    ));
+
+    if !existing_repos.is_empty() {
+        println!("Existing repositories in viewset:");
+        for repo in existing_repos {
+            println!("  • {}", repo.name);
+        }
+        println!();
+    }
+
+    // Interactive repository selection
+    let selector = InteractiveSelector::new();
+    let selected_repos =
+        selector.select_repositories_with_existing(available_repos, existing_repos)?;
+
+    if selected_repos.is_empty() {
+        ui::print_info("No new repositories selected.");
+        return Ok(Vec::new());
+    }
+
+    // Confirm selection
+    if !InteractiveSelector::confirm_selection(&selected_repos)? {
+        ui::print_info("Repository selection cancelled.");
+        return Ok(Vec::new());
+    }
+
+    Ok(selected_repos)
+}
+
+fn update_viewset(account: Option<&str>) -> Result<()> {
+    ui::print_info("Updating viewset with new repositories");
+
+    // Check if git is available
+    git::check_git_availability()?;
+
+    // Detect viewset context (must be in viewset root for update)
+    let current_dir = std::env::current_dir()?;
+    let repos_file = current_dir.join(".viewyard-repos.json");
+
+    if !repos_file.exists() {
+        ui::show_error_with_help(
+            "Not in a viewset directory",
+            &[
+                &format!("Current directory: {}", current_dir.display()),
+                "Expected: directory containing .viewyard-repos.json",
+                "Navigate to a viewset directory first",
+                "Or create a new viewset: viewyard viewset create <name>",
+            ],
+        );
+        return Err(anyhow::anyhow!("Not in a viewset directory"));
+    }
+
+    // Load existing repositories
+    let existing_repos = load_and_validate_repos(&repos_file)?;
+
+    // Discover available repositories
+    let Ok(all_repos) = discover_repositories_for_viewset(account) else {
+        ui::print_info("Falling back to manual repository management.");
+        ui::print_info("Edit .viewyard-repos.json manually to add repositories.");
+        return Ok(());
+    };
+
+    // Filter out repositories that already exist
+    let available_repos = filter_existing_repositories(&all_repos, &existing_repos);
+
+    // Interactive selection of new repositories
+    let selected_repos = select_repositories_for_update(&available_repos, &existing_repos)?;
+
+    if selected_repos.is_empty() {
+        ui::print_success("No changes made to viewset.");
+        return Ok(());
+    }
+
+    // Merge existing and new repositories
+    let mut updated_repos = existing_repos;
+    updated_repos.extend(selected_repos.iter().cloned());
+
+    // Update the repository configuration file
+    let repos_json = serde_json::to_string_pretty(&updated_repos)?;
+    std::fs::write(&repos_file, repos_json)?;
+
+    ui::print_success(&format!(
+        "Viewset updated successfully! Added {} new repositories.",
+        selected_repos.len()
+    ));
+
+    // Show what was added
+    ui::print_info("Added repositories:");
+    for repo in &selected_repos {
+        ui::print_info(&format!("  • {}", repo.name));
+    }
+
+    ui::print_info("");
+    ui::print_info("Next steps:");
+    ui::print_info("  • Update existing views: viewyard view update");
+    ui::print_info("  • Or create a new view: viewyard view create <view-name>");
 
     Ok(())
 }

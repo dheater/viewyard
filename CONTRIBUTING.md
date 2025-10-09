@@ -43,6 +43,7 @@ viewyard/
 │   ├── main.rs              # Main entry point and CLI handling
 │   ├── commands/
 │   │   └── workspace.rs     # Workspace commands (status, commit-all, etc.)
+│   ├── error_handling.rs   # Consolidated error handling and recovery guidance
 │   ├── git.rs              # Git operations wrapper
 │   ├── github.rs           # GitHub API integration
 │   ├── interactive.rs      # Interactive repository selection

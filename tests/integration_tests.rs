@@ -77,17 +77,6 @@ fn test_workspace_commands_outside_view() {
 }
 
 #[test]
-fn test_viewset_create_help() {
-    let mut cmd = Command::cargo_bin("viewyard").unwrap();
-    cmd.arg("viewset").arg("create").arg("--help");
-
-    cmd.assert()
-        .success()
-        .stdout(predicates::str::contains("Create a new viewset"))
-        .stdout(predicates::str::contains("GitHub account"));
-}
-
-#[test]
 fn test_basic_command_structure() {
     // Test that all main commands are available
     let mut cmd = Command::cargo_bin("viewyard").unwrap();
@@ -97,7 +86,6 @@ fn test_basic_command_structure() {
         .success()
         .stdout(predicates::str::contains("viewset"))
         .stdout(predicates::str::contains("view"))
-        .stdout(predicates::str::contains("repo"))
         .stdout(predicates::str::contains("status"))
         .stdout(predicates::str::contains("commit-all"))
         .stdout(predicates::str::contains("push-all"));

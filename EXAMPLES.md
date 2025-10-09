@@ -110,6 +110,17 @@ echo '[{"name":"repo1","url":"git@github.com:user/repo1.git","is_private":false,
 viewyard view create test-environment
 ```
 
+### Adding New Repositories
+```bash
+# Add new repositories to an existing viewset
+cd my-project
+viewyard viewset update                 # Interactive selection of new repos
+
+# Add new repositories to an existing view
+cd my-project/feature-123
+viewyard view update                    # Adds missing repos from viewset to current view
+```
+
 ### Version Control Integration
 ```bash
 # Include viewyard config in your project repository

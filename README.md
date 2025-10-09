@@ -1,8 +1,13 @@
 # Viewyard
 
-Monorepo experience, multi-repo reality.
+**Monorepo experience, multi-repo reality.**
 
-Viewyard is a multi-repository workspace management tool that creates synchronized development environments across multiple Git repositories. Instead of forcing everything into a monorepo, Viewyard lets you work with multiple repositories as if they were a single codebase.
+Viewyard creates synchronized development environments across multiple Git repositories. Instead of forcing everything into a monorepo or manually juggling scattered repos, Viewyard gives you the best of both worlds: lightweight coordination without monorepo complexity.
+
+**Why Viewyard?**
+- **Monorepos** are slow to clone, complex to build, and create tight coupling
+- **Scattered repos** lack coordination and require manual branch management
+- **Viewyard** provides synchronized branches across repositories with flexible organization
 
 ## 🚀 Quick Start
 
@@ -33,11 +38,13 @@ viewyard push-all                       # Push all repos with commits
 ```bash
 viewyard viewset create <name>          # Create new project workspace
 viewyard viewset create <name> --account <github-user>  # From specific account
+viewyard viewset update                 # Add new repositories to existing viewset
 ```
 
 ### View Management (branch-level)
 ```bash
 viewyard view create <branch-name>      # Create synchronized branch workspace
+viewyard view update                    # Add new repositories from viewset to current view
 ```
 
 ### Workspace Commands (run from within a view directory)
@@ -156,25 +163,6 @@ Viewyard automatically discovers repositories from your GitHub accounts:
 - **Organization repositories** from organizations you belong to
 - **Multiple account support** for work/personal separation
 
-## ⚡ Why Viewyard?
-
-**Problems with monorepos:**
-- Massive clone times and disk usage
-- Complex build systems and tooling
-- Tight coupling between unrelated code
-- Difficult access control and team boundaries
-
-**Problems with scattered repos:**
-- No coordination between related changes
-- Manual branch management across repositories
-- Inconsistent development environments
-- Complex release coordination
-
-**Viewyard's solution:**
-- **Synchronized branches** across multiple repositories
-- **Lightweight coordination** without monorepo complexity
-- **Flexible organization** - use multiple viewsets for different projects
-
 ---
 
-Monorepo experience, multi-repo reality.
+**Monorepo experience, multi-repo reality.**
