@@ -437,47 +437,35 @@ fn clone_and_setup_branch(
 }
 
 fn setup_branch_in_repo(repo_path: &std::path::Path, branch_name: &str) -> Result<()> {
-    // Check if branch already exists
-    let check_output = std::process::Command::new("git")
-        .args(["branch", "--list", branch_name])
+    // Try to checkout the branch - git will automatically:
+    // 1. Checkout local branch if it exists
+    // 2. Checkout remote branch (creating tracking local) if it exists
+    // 3. Fail if neither exists
+    let checkout = std::process::Command::new("git")
+        .args(["checkout", branch_name])
         .current_dir(repo_path)
         .output()
-        .context("Failed to check if branch exists")?;
+        .context("Failed to execute git checkout")?;
 
-    let branch_exists = !String::from_utf8_lossy(&check_output.stdout)
-        .trim()
-        .is_empty();
-
-    if branch_exists {
-        // Checkout existing branch
-        let output = std::process::Command::new("git")
-            .args(["checkout", branch_name])
-            .current_dir(repo_path)
-            .output()
-            .context("Failed to checkout existing branch")?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            error_handling::handle_checkout_error(branch_name, repo_path, &stderr)?;
-        }
-        ui::print_info(&format!("    Checked out existing branch '{branch_name}'"));
-    } else {
-        // Create new branch from current default branch
-        let output = std::process::Command::new("git")
-            .args(["checkout", "-b", branch_name])
-            .current_dir(repo_path)
-            .output()
-            .context("Failed to create new branch")?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            error_handling::handle_branch_creation_error(branch_name, repo_path, &stderr)?;
-        }
-        ui::print_info(&format!(
-            "    Created and checked out new branch '{branch_name}'"
-        ));
+    if checkout.status.success() {
+        // Branch existed (local or remote) and was checked out successfully
+        ui::print_info(&format!("    Checked out branch '{branch_name}'"));
+        return Ok(());
     }
 
+    // Branch doesn't exist - create it
+    let create = std::process::Command::new("git")
+        .args(["checkout", "-b", branch_name])
+        .current_dir(repo_path)
+        .output()
+        .context("Failed to create new branch")?;
+
+    if !create.status.success() {
+        let stderr = String::from_utf8_lossy(&create.stderr);
+        error_handling::handle_branch_creation_error(branch_name, repo_path, &stderr)?;
+    }
+
+    ui::print_info(&format!("    Created new branch '{branch_name}'"));
     Ok(())
 }
 
