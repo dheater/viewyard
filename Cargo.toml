@@ -1,6 +1,6 @@
 [package]
 name = "viewyard"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 description = "Multi-repository workspace management tool"
 license = "MIT"
