@@ -16,19 +16,6 @@ pub fn handle_clone_error(repo_name: &str, stderr: &str) -> Result<()> {
     }
 }
 
-/// Handle git branch checkout errors
-pub fn handle_checkout_error(
-    branch_name: &str,
-    repo_path: &std::path::Path,
-    stderr: &str,
-) -> Result<()> {
-    if stderr.contains("uncommitted changes") || stderr.contains("would be overwritten") {
-        show_uncommitted_changes_error(branch_name, repo_path)
-    } else {
-        show_generic_checkout_error(branch_name, repo_path, stderr)
-    }
-}
-
 /// Handle git branch creation errors
 pub fn handle_branch_creation_error(
     branch_name: &str,
@@ -88,33 +75,6 @@ fn show_generic_clone_error(repo_name: &str, stderr: &str) -> Result<()> {
     ui::print_info("   • Check repository URL and permissions");
     ui::print_info("   • Verify git and network connectivity");
     anyhow::bail!("Failed to clone repository '{repo_name}': {stderr}")
-}
-
-fn show_uncommitted_changes_error(branch_name: &str, repo_path: &std::path::Path) -> Result<()> {
-    ui::print_error(&format!(
-        "Cannot checkout branch '{branch_name}' - uncommitted changes"
-    ));
-    ui::print_info("Uncommitted changes detected:");
-    ui::print_info(&format!("   • Navigate to: cd {}", repo_path.display()));
-    ui::print_info("   • Commit changes: git add . && git commit -m \"Save work\"");
-    ui::print_info("   • Or stash changes: git stash");
-    ui::print_info("   • Then retry view creation");
-    anyhow::bail!("Failed to checkout branch '{branch_name}' - uncommitted changes")
-}
-
-fn show_generic_checkout_error(
-    branch_name: &str,
-    repo_path: &std::path::Path,
-    stderr: &str,
-) -> Result<()> {
-    ui::print_error(&format!("Failed to checkout branch '{branch_name}'"));
-    ui::print_info("Branch checkout failed:");
-    ui::print_info(&format!("   • Error: {}", stderr.trim()));
-    ui::print_info(&format!(
-        "   • Check branch status: cd {} && git status",
-        repo_path.display()
-    ));
-    anyhow::bail!("Failed to checkout branch '{branch_name}': {stderr}")
 }
 
 fn show_branch_exists_error(branch_name: &str) -> Result<()> {
