@@ -2,6 +2,14 @@
 /target/
 Cargo.lock
 
+# Zig build artifacts
+.zig-cache/
+b/
+h/
+o/
+z/
+zig-out/
+
 # IDE files
 .vscode/
 .idea/
